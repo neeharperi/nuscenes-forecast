@@ -254,6 +254,7 @@ class TrackingBox(EvalBox):
     def __init__(self,
                  sample_token: str = "",
                  forecast_sample_tokens: list = [],
+                 reverse_sample_tokens: list = [],
                  translation: Tuple[float, float, float] = (0, 0, 0),
                  size: Tuple[float, float, float] = (0, 0, 0),
                  rotation: Tuple[float, float, float, float] = (0, 0, 0, 0),
@@ -268,7 +269,7 @@ class TrackingBox(EvalBox):
                  tracking_name: str = '',  # The class name used in the tracking challenge.
                  tracking_score: float = -1.0):  # Does not apply to GT.
 
-        super().__init__(sample_token, forecast_sample_tokens, translation, size, rotation, forecast_rotation, velocity, forecast_velocity, rvelocity, forecast_rvelocity, ego_translation, num_pts)
+        super().__init__(sample_token, reverse_sample_tokens, translation, size, rotation, forecast_rotation, velocity, forecast_velocity, rvelocity, forecast_rvelocity, ego_translation, num_pts)
 
         assert tracking_name is not None, 'Error: tracking_name cannot be empty!'
         assert tracking_name in TRACKING_NAMES, 'Error: Unknown tracking_name %s' % tracking_name
@@ -299,6 +300,7 @@ class TrackingBox(EvalBox):
         return {
             'sample_token': self.sample_token,
             'forecast_sample_tokens' : self.forecast_sample_tokens,
+            'reverse_sample_tokens' : self.reverse_sample_tokens,
             'translation': self.translation,
             'size': self.size,
             'rotation': self.rotation,
@@ -319,6 +321,7 @@ class TrackingBox(EvalBox):
         """ Initialize from serialized content. """
         return cls(sample_token=content['sample_token'],
                    forecast_sample_tokens=content["forecast_sample_tokens"],
+                   reverse_sample_tokens=content["reverse_sample_tokens"],
                    translation=tuple(content['translation']),
                    size=tuple(content['size']),
                    rotation=tuple(content['rotation']),

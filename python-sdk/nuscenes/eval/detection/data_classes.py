@@ -99,7 +99,10 @@ class DetectionMetricData(MetricData):
                  attr_err: np.array,
                  avg_disp_err: np.array,
                  final_disp_err: np.array,
-                 miss_rate: np.array):
+                 miss_rate: np.array,
+                 reverse_avg_disp_err: np.array,
+                 reverse_final_disp_err: np.array,
+                 reverse_miss_rate: np.array):
 
         # Assert lengths.
         assert len(recall) == self.nelem
@@ -114,6 +117,9 @@ class DetectionMetricData(MetricData):
         assert len(avg_disp_err) == self.nelem
         assert len(final_disp_err) == self.nelem
         assert len(miss_rate) == self.nelem
+        assert len(reverse_avg_disp_err) == self.nelem
+        assert len(reverse_final_disp_err) == self.nelem
+        assert len(reverse_miss_rate) == self.nelem
 
         # Assert ordering.
         assert all(confidence == sorted(confidence, reverse=True))  # Confidences should be descending.
@@ -132,6 +138,9 @@ class DetectionMetricData(MetricData):
         self.avg_disp_err = avg_disp_err
         self.final_disp_err = final_disp_err
         self.miss_rate = miss_rate
+        self.reverse_avg_disp_err = reverse_avg_disp_err
+        self.reverse_final_disp_err = reverse_final_disp_err
+        self.reverse_miss_rate = reverse_miss_rate
 
     def __eq__(self, other):
         eq = True
@@ -173,6 +182,9 @@ class DetectionMetricData(MetricData):
             'avg_disp_err' : self.avg_disp_err.tolist(),
             'final_disp_err' : self.final_disp_err.tolist(),
             'miss_rate' : self.miss_rate.tolist(),
+            'reverse_avg_disp_err' : self.reverse_avg_disp_err.tolist(),
+            'reverse_final_disp_err' : self.reverse_final_disp_err.tolist(),
+            'reverse_miss_rate' : self.reverse_miss_rate.tolist(),
         }
 
     @classmethod
@@ -190,6 +202,9 @@ class DetectionMetricData(MetricData):
                    avg_disp_err=np.array(content['avg_disp_err']),
                    final_disp_err=np.array(content['final_disp_err']),
                    miss_rate=np.array(content['miss_rate']),
+                   reverse_avg_disp_err=np.array(content['reverse_avg_disp_err']),
+                   reverse_final_disp_err=np.array(content['reverse_final_disp_err']),
+                   reverse_miss_rate=np.array(content['reverse_miss_rate']),
                    )
 
     @classmethod
@@ -207,6 +222,9 @@ class DetectionMetricData(MetricData):
                    avg_disp_err=np.ones(cls.nelem),
                    final_disp_err=np.ones(cls.nelem),
                    miss_rate=np.ones(cls.nelem),
+                   reverse_avg_disp_err=np.ones(cls.nelem),
+                   reverse_final_disp_err=np.ones(cls.nelem),
+                   reverse_miss_rate=np.ones(cls.nelem),
                    )
 
     @classmethod
@@ -224,6 +242,9 @@ class DetectionMetricData(MetricData):
                    avg_disp_err=np.random.random(cls.nelem),
                    final_disp_err=np.random.random(cls.nelem),
                    miss_rate=np.random.random(cls.nelem),
+                   reverse_avg_disp_err=np.random.random(cls.nelem),
+                   reverse_final_disp_err=np.random.random(cls.nelem),
+                   reverse_miss_rate=np.random.random(cls.nelem),
                    )
 
 
@@ -380,10 +401,13 @@ class DetectionBox(EvalBox):
     def __init__(self,
                  sample_token: str = "",
                  forecast_sample_tokens: list = [],
+                 reverse_sample_tokens: list = [],
                  translation: Tuple[float, float, float] = (0, 0, 0),
                  size: Tuple[float, float, float] = (0, 0, 0),
                  rotation: Tuple[float, float, float, float] = (0, 0, 0, 0),
                  forecast_rotation: list = [],
+                 rrotation: list = [],
+                 forecast_rrotation: list = [],
                  velocity: Tuple[float, float] = (0, 0),
                  forecast_velocity: list = [],
                  rvelocity: Tuple[float, float] = (0, 0),
@@ -394,7 +418,7 @@ class DetectionBox(EvalBox):
                  detection_score: float = -1.0,  # GT samples do not have a score.
                  attribute_name: str = ''):  # Box attribute. Each box can have at most 1 attribute.
 
-        super().__init__(sample_token, forecast_sample_tokens, translation, size, rotation, forecast_rotation, velocity, forecast_velocity, rvelocity, forecast_rvelocity, ego_translation, num_pts)
+        super().__init__(sample_token, forecast_sample_tokens, reverse_sample_tokens, translation, size, rotation, forecast_rotation, rrotation, forecast_rrotation, velocity, forecast_velocity, rvelocity, forecast_rvelocity, ego_translation, num_pts)
 
         assert detection_name is not None, 'Error: detection_name cannot be empty!'
         assert detection_name in DETECTION_NAMES, 'Error: Unknown detection_name %s' % detection_name
@@ -415,6 +439,7 @@ class DetectionBox(EvalBox):
                 self.translation == other.translation and
                 self.size == other.size and
                 self.rotation == other.rotation and
+                self.rrotation == other.rrotation and
                 self.velocity == other.velocity and
                 self.rvelocity == other.rvelocity and
                 self.ego_translation == other.ego_translation and
@@ -428,10 +453,13 @@ class DetectionBox(EvalBox):
         return {
             'sample_token': self.sample_token,
             'forecast_sample_tokens' : self.forecast_sample_tokens,
+            'reverse_sample_tokens' : self.reverse_sample_tokens,
             'translation': self.translation,
             'size': self.size,
             'rotation': self.rotation,
             'forecast_rotation' : self.forecast_rotation,
+            'rrotation': self.rrotation,
+            'forecast_rrotation' : self.forecast_rrotation,
             'velocity': self.velocity,
             'forecast_velocity': self.forecast_velocity,
             'rvelocity': self.rvelocity,
@@ -448,10 +476,13 @@ class DetectionBox(EvalBox):
         """ Initialize from serialized content. """
         return cls(sample_token=content['sample_token'],
                    forecast_sample_tokens=content["forecast_sample_tokens"],
+                   reverse_sample_tokens=content["reverse_sample_tokens"],
                    translation=tuple(content['translation']),
                    size=tuple(content['size']),
                    rotation=tuple(content['rotation']),
                    forecast_rotation=content['forecast_rotation'],
+                   rrotation=tuple(content['rrotation']),
+                   forecast_rrotation=content['forecast_rrotation'],
                    velocity=tuple(content['velocity']),
                    forecast_velocity=content['forecast_velocity'],
                    rvelocity=tuple(content['rvelocity']),

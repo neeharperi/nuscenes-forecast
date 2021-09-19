@@ -14,6 +14,16 @@ from matplotlib.axes import Axes
 from pyquaternion import Quaternion
 
 from nuscenes.utils.geometry_utils import view_points, transform_matrix
+import pdb 
+
+from itertools import tee
+
+def window(iterable, size):
+    iters = tee(iterable, size)
+    for i in range(1, size):
+        for each in iters[i:]:
+            next(each, None)
+    return zip(*iters)
 
 
 class PointCloud(ABC):
@@ -226,7 +236,9 @@ class PointCloud(ABC):
         :param marker_size: Marker size.
         """
         points = view_points(self.points[:3, :], view, normalize=False)
-        ax.scatter(points[0, :], points[1, :], c=self.points[color_channel, :], s=marker_size)
+        #ax.scatter(points[0, :], points[1, :], c=self.points[color_channel, :], s=marker_size)
+        ax.scatter(points[0, :], points[1, :], c="#c6c6c6", s=marker_size)
+
         ax.set_xlim(x_lim[0], x_lim[1])
         ax.set_ylim(y_lim[0], y_lim[1])
 
@@ -459,14 +471,17 @@ class Box:
 
     def __init__(self,
                  center: List[float],
+                 rcenter: List[float],
                  size: List[float],
                  orientation: Quaternion,
+                 rorientation: Quaternion,
                  label: int = np.nan,
                  score: float = np.nan,
                  velocity: Tuple = (np.nan, np.nan, np.nan),
                  rvelocity: Tuple = (np.nan, np.nan, np.nan),
                  name: str = None,
-                 token: str = None):
+                 token: str = None,
+                 rtoken: str = None):
         """
         :param center: Center of box given as x, y, z.
         :param size: Size of box in width, length, height.
@@ -478,25 +493,33 @@ class Box:
         :param token: Unique string identifier from DB.
         """
         assert not np.any(np.isnan(center))
+        assert not np.any(np.isnan(rcenter))
+
         assert not np.any(np.isnan(size))
         assert len(center) == 3
+        assert len(rcenter) == 3
         assert len(size) == 3
         assert type(orientation) == Quaternion
 
         self.center = np.array(center)
+        self.rcenter = np.array(rcenter)
         self.wlh = np.array(size)
         self.orientation = orientation
+        self.rorientation = rorientation
         self.label = int(label) if not np.isnan(label) else label
         self.score = float(score) if not np.isnan(score) else score
         self.velocity = np.array(velocity)
         self.rvelocity = np.array(rvelocity)
         self.name = name
         self.token = token
+        self.rtoken = rtoken
 
     def __eq__(self, other):
         center = np.allclose(self.center, other.center)
+        rcenter = np.allclose(self.rcenter, other.rcenter)
         wlh = np.allclose(self.wlh, other.wlh)
         orientation = np.allclose(self.orientation.elements, other.orientation.elements)
+        rorientation = np.allclose(self.rorientation.elements, other.rorientation.elements)
         label = (self.label == other.label) or (np.isnan(self.label) and np.isnan(other.label))
         score = (self.score == other.score) or (np.isnan(self.score) and np.isnan(other.score))
         vel = (np.allclose(self.velocity, other.velocity) or
@@ -506,14 +529,17 @@ class Box:
         return center and wlh and orientation and label and score and vel and rvel
 
     def __repr__(self):
-        repr_str = 'label: {}, score: {:.2f}, xyz: [{:.2f}, {:.2f}, {:.2f}], wlh: [{:.2f}, {:.2f}, {:.2f}], ' \
+        repr_str = 'label: {}, score: {:.2f}, xyz: [{:.2f}, {:.2f}, {:.2f}], rxyz: [{:.2f}, {:.2f}, {:.2f}], wlh: [{:.2f}, {:.2f}, {:.2f}], ' \
                    'rot axis: [{:.2f}, {:.2f}, {:.2f}], ang(degrees): {:.2f}, ang(rad): {:.2f}, ' \
-                   'vel: {:.2f}, {:.2f}, {:.2f}, rvel: {:.2f}, {:.2f}, {:.2f}, name: {}, token: {}'
+                   'rrot axis: [{:.2f}, {:.2f}, {:.2f}], rang(degrees): {:.2f}, rang(rad): {:.2f}, ' \
+                   'vel: {:.2f}, {:.2f}, {:.2f}, rvel: {:.2f}, {:.2f}, {:.2f}, name: {}, token: {}, rtoken: {}'
 
-        return repr_str.format(self.label, self.score, self.center[0], self.center[1], self.center[2], self.wlh[0],
+        return repr_str.format(self.label, self.score, self.center[0], self.center[1], self.center[2], self.rcenter[0], self.rcenter[1], self.rcenter[2], self.wlh[0],
                                self.wlh[1], self.wlh[2], self.orientation.axis[0], self.orientation.axis[1],
                                self.orientation.axis[2], self.orientation.degrees, self.orientation.radians,
-                               self.velocity[0], self.velocity[1], self.velocity[2], self.rvelocity[0], self.rvelocity[1], self.rvelocity[2], self.name, self.token)
+                               self.rorientation.axis[0], self.rorientation.axis[1],
+                               self.rorientation.axis[2], self.rorientation.degrees, self.rorientation.radians,
+                               self.velocity[0], self.velocity[1], self.velocity[2], self.rvelocity[0], self.rvelocity[1], self.rvelocity[2], self.name, self.token, self.rtoken)
 
     @property
     def rotation_matrix(self) -> np.ndarray:
@@ -523,12 +549,26 @@ class Box:
         """
         return self.orientation.rotation_matrix
 
+    def rrotation_matrix(self) -> np.ndarray:
+        """
+        Return a rotation matrix.
+        :return: <np.float: 3, 3>. The box's rotation matrix.
+        """
+        return self.rorientation.rotation_matrix
+
     def translate(self, x: np.ndarray) -> None:
         """
         Applies a translation.
         :param x: <np.float: 3, 1>. Translation in x, y, z direction.
         """
         self.center += x
+
+    def rtranslate(self, x: np.ndarray) -> None:
+        """
+        Applies a translation.
+        :param x: <np.float: 3, 1>. Translation in x, y, z direction.
+        """
+        self.rcenter += x
 
     def rotate(self, quaternion: Quaternion) -> None:
         """
@@ -538,6 +578,15 @@ class Box:
         self.center = np.dot(quaternion.rotation_matrix, self.center)
         self.orientation = quaternion * self.orientation
         self.velocity = np.dot(quaternion.rotation_matrix, self.velocity)
+
+    def rrotate(self, quaternion: Quaternion) -> None:
+        """
+        Rotates box.
+        :param quaternion: Rotation to apply.
+        """
+        self.rcenter = np.dot(quaternion.rotation_matrix, self.rcenter)
+        self.rorientation = quaternion * self.rorientation
+        self.rvelocity = np.dot(quaternion.rotation_matrix, self.rvelocity)
 
     def corners(self, wlh_factor: float = 1.0) -> np.ndarray:
         """
@@ -611,6 +660,51 @@ class Box:
         axis.plot([center_bottom[0], center_bottom_forward[0]],
                   [center_bottom[1], center_bottom_forward[1]],
                   color=colors[0], linewidth=linewidth)
+
+    def render_forecast(self,
+               axis: Axes,
+               view: np.ndarray = np.eye(3),
+               normalize: bool = False,
+               colors: Tuple = ('b', 'r', 'k'),
+               linewidth: float = 2,
+               center= []) -> None:
+        """
+        Renders the box in the provided Matplotlib axis.
+        :param axis: Axis onto which the box should be drawn.
+        :param view: <np.array: 3, 3>. Define a projection in needed (e.g. for drawing projection in an image).
+        :param normalize: Whether to normalize the remaining coordinate.
+        :param colors: (<Matplotlib.colors>: 3). Valid Matplotlib colors (<str> or normalized RGB tuple) for front,
+            back and sides.
+        :param linewidth: Width in pixel of the box sides.
+        """
+        corners = view_points(self.corners(), view, normalize=normalize)[:2, :]
+
+        def draw_rect(selected_corners, color):
+            prev = selected_corners[-1]
+            for corner in selected_corners:
+                axis.plot([prev[0], corner[0]], [prev[1], corner[1]], color=color, linewidth=linewidth)
+                prev = corner
+
+        # Draw the sides
+        for i in range(4):
+            axis.plot([corners.T[i][0], corners.T[i + 4][0]],
+                      [corners.T[i][1], corners.T[i + 4][1]],
+                      color=colors[2], linewidth=linewidth)
+
+        # Draw front (first 4 corners) and rear (last 4 corners) rectangles(3d)/lines(2d)
+        draw_rect(corners.T[:4], colors[0])
+        draw_rect(corners.T[4:], colors[1])
+
+        # Draw line indicating the front
+        center_bottom_forward = np.mean(corners.T[2:4], axis=0)
+        center_bottom = np.mean(corners.T[[2, 3, 7, 6]], axis=0)
+        axis.plot([center_bottom[0], center_bottom_forward[0]],
+                  [center_bottom[1], center_bottom_forward[1]],
+                  color=colors[0], linewidth=linewidth)
+
+        for pt1, pt2 in window(center, 2):
+            pt1, pt2 = pt1[:2], pt2[:2]
+            axis.plot([pt1[0], pt2[0]], [pt1[1], pt2[1]], '{}o--'.format(colors[0]), markersize=4)
 
     def render_cv2(self,
                    im: np.ndarray,

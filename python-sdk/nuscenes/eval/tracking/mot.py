@@ -33,7 +33,13 @@ class MOTAccumulatorCustom(motmetrics.mot.MOTAccumulator):
             list of events where each event is a list containing
             'Type', 'OId', HId', 'D'
         """
-        idx = pd.MultiIndex.from_tuples(indices, names=['FrameId', 'Event'])
+        tuples = []
+
+        for fid, evnt in zip(indices["FrameId"], indices["Event"]):
+            tuples.append((fid, evnt))
+        #idx = pd.MultiIndex.from_tuples(indices, names=['FrameId', 'Event'])
+        idx = pd.MultiIndex.from_tuples(tuples, names=['FrameId', 'Event'])
+
         df = pd.DataFrame(events, index=idx, columns=['Type', 'OId', 'HId', 'D'])
         return df
 

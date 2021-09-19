@@ -21,6 +21,22 @@ from nuscenes.eval.tracking.render import recall_metric_curve, summary_plot
 from nuscenes.eval.tracking.utils import print_final_metrics
 import pdb
 
+
+def fixID(tracks):
+    lookup = {}
+    cnt = 0
+
+    for scene_token in tracks: 
+        for timestamp in tracks[scene_token]:
+            for annotation in tracks[scene_token][timestamp]:
+                if annotation.tracking_id not in lookup:
+                    lookup[annotation.tracking_id] = cnt
+                    cnt = cnt + 1
+
+                annotation.tracking_id = lookup[annotation.tracking_id]
+
+    return tracks
+
 class TrackingEval:
     """
     This is the official nuScenes tracking evaluation code.
@@ -105,7 +121,9 @@ class TrackingEval:
         self.tracks_gt = create_tracks(gt_boxes, nusc, self.eval_set, gt=True)
         self.tracks_pred = create_tracks(pred_boxes, nusc, self.eval_set, gt=False)
 
-
+        self.tracks_gt = fixID(self.tracks_gt)
+        self.tracks_pred = fixID(self.tracks_pred)
+        
     def evaluate(self) -> Tuple[TrackingMetrics, TrackingMetricDataList]:
         """
         Performs the actual evaluation.

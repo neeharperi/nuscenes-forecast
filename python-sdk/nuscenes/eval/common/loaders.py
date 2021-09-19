@@ -19,22 +19,35 @@ from nuscenes.utils.geometry_utils import points_in_box
 from nuscenes.utils.splits import create_splits_scenes
 import pdb
 
-def forecast_annotation(nusc, annotation, timesteps):
+def forecast_annotation(nusc, annotation, timesteps=5):
     forecast_tokens = []
     forecast_rotation = []
     forecast_velocity = []
 
+    reverse_tokens = []
+    reverse_rotation = []
+    reverse_velocity = []
+
+    pannotation = annotation
     for i in range(timesteps + 1):
         forecast_tokens.append(annotation["sample_token"])
         forecast_rotation.append(annotation["rotation"])
         forecast_velocity.append(nusc.box_velocity(annotation["token"])[:2])
 
+        reverse_tokens.append(pannotation["sample_token"])
+        reverse_rotation.append(pannotation["rotation"])
+        reverse_velocity.append(nusc.box_velocity(pannotation["token"])[:2])
+
         next_token = annotation["next"]
+        prev_token = pannotation["prev"]
 
         if next_token != "":
             annotation = nusc.get("sample_annotation", next_token)
         
-    return forecast_tokens, forecast_rotation, forecast_velocity
+        if prev_token != "":
+            pannotation = nusc.get("sample_annotation", prev_token)
+
+    return (forecast_tokens, reverse_tokens), (forecast_rotation, reverse_rotation),  (forecast_velocity, reverse_velocity)
 
 def load_prediction(result_path: str, max_boxes_per_sample: int, box_cls, verbose: bool = False) \
         -> Tuple[EvalBoxes, Dict]:
@@ -68,7 +81,7 @@ def load_prediction(result_path: str, max_boxes_per_sample: int, box_cls, verbos
     return all_results, meta
 
 
-def load_gt(nusc: NuScenes, eval_split: str, box_cls, verbose: bool = False, forecast: int = 0) -> EvalBoxes:
+def load_gt(nusc: NuScenes, eval_split: str, box_cls, verbose: bool = False, forecast: int = 5) -> EvalBoxes:
     """
     Loads ground truth boxes from DB.
     :param nusc: A NuScenes instance.
@@ -130,8 +143,8 @@ def load_gt(nusc: NuScenes, eval_split: str, box_cls, verbose: bool = False, for
         for sample_annotation_token in sample_annotation_tokens:
             sample_annotation = nusc.get('sample_annotation', sample_annotation_token)
             
-            forecast_sample_tokens, forecast_rotation, forecast_velocity = forecast_annotation(nusc, sample_annotation, forecast)
-            
+            sample_tokens, rotation, velocity = forecast_annotation(nusc, sample_annotation, forecast)
+
             if box_cls == DetectionBox:
                 # Get label name in detection task and filter unused labels.
                 detection_name = category_to_detection_name(sample_annotation['category_name'])
@@ -151,13 +164,17 @@ def load_gt(nusc: NuScenes, eval_split: str, box_cls, verbose: bool = False, for
                 sample_boxes.append(
                     box_cls(
                         sample_token=sample_token,
-                        forecast_sample_tokens=forecast_sample_tokens,
+                        forecast_sample_tokens=sample_tokens[0],
+                        reverse_sample_tokens=sample_tokens[1],
                         translation=sample_annotation['translation'],
                         size=sample_annotation['size'],
                         rotation=sample_annotation['rotation'],
-                        forecast_rotation=forecast_rotation,
+                        forecast_rotation=rotation[0],
+                        rrotation=sample_annotation["rotation"],
+                        forecast_rrotation=rotation[1],
                         velocity=nusc.box_velocity(sample_annotation['token'])[:2],
-                        forecast_velocity=forecast_velocity,
+                        forecast_velocity=velocity[0],
+                        forecast_rvelocity=velocity[1],
                         num_pts=sample_annotation['num_lidar_pts'] + sample_annotation['num_radar_pts'],
                         detection_name=detection_name,
                         detection_score=-1.0,  # GT samples do not have a score.
@@ -257,7 +274,7 @@ def filter_eval_boxes(nusc: NuScenes,
         sample_anns = nusc.get('sample', sample_token)['anns']
         bikerack_recs = [nusc.get('sample_annotation', ann) for ann in sample_anns if
                          nusc.get('sample_annotation', ann)['category_name'] == 'static_object.bicycle_rack']
-        bikerack_boxes = [Box(rec['translation'], rec['size'], Quaternion(rec['rotation'])) for rec in bikerack_recs]
+        bikerack_boxes = [Box(center=rec['translation'], rcenter=rec['translation'], size=rec['size'], orientation=Quaternion(rec['rotation']), rorientation=Quaternion(rec['rotation'])) for rec in bikerack_recs]
         filtered_boxes = []
         for box in eval_boxes[sample_token]:
             if box.__getattribute__(class_field) in ['bicycle', 'motorcycle']:

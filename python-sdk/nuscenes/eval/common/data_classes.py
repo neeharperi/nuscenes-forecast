@@ -14,10 +14,13 @@ class EvalBox(abc.ABC):
     def __init__(self,
                  sample_token: str = "",
                  forecast_sample_token: list = [],
+                 reverse_sample_token: list = [],
                  translation: Tuple[float, float, float] = (0, 0, 0),
                  size: Tuple[float, float, float] = (0, 0, 0),
                  rotation: Tuple[float, float, float, float] = (0, 0, 0, 0),
                  forecast_rotation: list = [],
+                 rrotation: Tuple[float, float, float, float] = (0, 0, 0, 0),
+                 forecast_rrotation: list = [],
                  velocity: Tuple[float, float] = (0, 0),
                  forecast_velocity: list = [],
                  rvelocity: Tuple[float, float] = (0, 0),
@@ -39,7 +42,6 @@ class EvalBox(abc.ABC):
 
         # Velocity can be NaN from our database for certain annotations.
         assert len(velocity) == 2, 'Error: Velocity must have 2 elements!'
-        assert len(rvelocity) == 2, 'Error: rvelocity must have 2 elements!'
 
         assert len(ego_translation) == 3, 'Error: Translation must have 3 elements!'
         assert not np.any(np.isnan(ego_translation)), 'Error: Translation may not be NaN!'
@@ -50,10 +52,13 @@ class EvalBox(abc.ABC):
         # Assign.
         self.sample_token = sample_token
         self.forecast_sample_tokens = forecast_sample_token
+        self.reverse_sample_tokens = reverse_sample_token
         self.translation = translation
         self.size = size
         self.rotation = rotation
         self.forecast_rotation = forecast_rotation
+        self.rrotation = rrotation
+        self.forecast_rrotation = forecast_rrotation
         self.velocity = velocity
         self.forecast_velocity = forecast_velocity
         self.rvelocity = rvelocity

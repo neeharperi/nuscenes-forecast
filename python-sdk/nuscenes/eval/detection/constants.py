@@ -38,10 +38,11 @@ PRETTY_ATTRIBUTE_NAMES = {'pedestrian.moving': 'Ped. Moving',
                           'vehicle.parked': 'Veh. Parked',
                           'vehicle.stopped': 'Veh. Stopped'}
 
-TP_METRICS = ['trans_err', 'scale_err', 'orient_err', 'vel_err', 'attr_err'] + ['avg_disp_err', 'final_disp_err', 'miss_rate']
+TP_METRICS = ['trans_err', 'scale_err', 'orient_err', 'vel_err', 'attr_err'] + ['avg_disp_err', 'final_disp_err', 'miss_rate'] + ['reverse_avg_disp_err', 'reverse_final_disp_err', 'reverse_miss_rate']
 
 PRETTY_TP_METRICS = {'trans_err': 'Trans.', 'scale_err': 'Scale', 'orient_err': 'Orient.', 'vel_err': 'Vel.',
-                     'attr_err': 'Attr.', 'avg_disp_err' : "ADE", 'final_disp_err' : "FDE", 'miss_rate': "MR"}
+                     'attr_err': 'Attr.', 'avg_disp_err' : "ADE", 'final_disp_err' : "FDE", 'miss_rate': "MR",
+                     'reverse_avg_disp_err' : "RADE", 'reverse_final_disp_err' : "RFDE", 'reverse_miss_rate': "RMR"}
 
 TP_METRICS_UNITS = {'trans_err': 'm',
                     'scale_err': '1-IOU',
@@ -50,4 +51,7 @@ TP_METRICS_UNITS = {'trans_err': 'm',
                     'attr_err': '1-acc.',
                     'avg_disp_err' : 'm',
                     'final_disp_err' : 'm',
-                    'miss_rate' : '1-acc'}
+                    'miss_rate' : '1-acc',
+                    'reverse_avg_disp_err' : 'm',
+                    'reverse_final_disp_err' : 'm',
+                    'reverse_miss_rate' : '1-acc'}

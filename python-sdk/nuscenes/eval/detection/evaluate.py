@@ -49,7 +49,8 @@ class DetectionEval:
                  eval_set: str,
                  output_dir: str = None,
                  verbose: bool = True,
-                 forecast: int = 0):
+                 forecast: int = 6,
+                 tp_pct: float = 0.6):
         """
         Initialize a DetectionEval object.
         :param nusc: A NuScenes object.
@@ -66,6 +67,7 @@ class DetectionEval:
         self.verbose = verbose
         self.cfg = config
         self.forecast = forecast
+        self.tp_pct = tp_pct
 
         # Check result file exists.
         assert os.path.exists(result_path), 'Error: The result file does not exist!'
@@ -98,7 +100,7 @@ class DetectionEval:
         if verbose:
             print('Filtering ground truth annotations')
         self.gt_boxes = filter_eval_boxes(nusc, self.gt_boxes, self.cfg.class_range, verbose=verbose)
-
+        
         self.sample_tokens = self.gt_boxes.sample_tokens
 
     def evaluate(self) -> Tuple[DetectionMetrics, DetectionMetricDataList]:
@@ -142,7 +144,7 @@ class DetectionEval:
                 elif class_name in ['barrier'] and metric_name in ['attr_err', 'vel_err']:
                     tp = np.nan
                 else:
-                    tp = calc_tp(metric_data, self.cfg.min_recall, metric_name)
+                    tp = calc_tp(metric_data, self.cfg.min_recall, metric_name, self.tp_pct)
                 metrics.add_label_tp(class_name, metric_name, tp)
 
         # Compute evaluation time.
@@ -234,7 +236,9 @@ class DetectionEval:
             'avg_disp_err' : 'mADE',
             'final_disp_err' : 'mFDE',
             'miss_rate' : 'mMR',
-
+            'reverse_avg_disp_err' : 'mRADE',
+            'reverse_final_disp_err' : 'mRFDE',
+            'reverse_miss_rate' : 'mRMR',
         }
         for tp_name, tp_val in metrics_summary['tp_errors'].items():
             print('%s: %.4f' % (err_name_mapping[tp_name], tp_val))
@@ -244,12 +248,12 @@ class DetectionEval:
         # Print per-class metrics.
         print()
         print('Per-class results:')
-        print('Object Class\tAP\tFAP\tATE\tASE\tAOE\tAVE\tAAE\tADE\tFDE\tMR')
+        print('Object Class\tAP\tFAP\tATE\tASE\tAOE\tAVE\tAAE\tADE\tFDE\tMR\tRADE\tRFDE\tRMR')
         class_aps = metrics_summary['mean_dist_aps']
         class_faps = metrics_summary['mean_dist_faps']
         class_tps = metrics_summary['label_tp_errors']
         for class_name in class_aps.keys():
-            print('%s\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f'
+            print('%s\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f'
                   % (class_name, class_aps[class_name], class_faps[class_name],
                      class_tps[class_name]['trans_err'],
                      class_tps[class_name]['scale_err'],
@@ -259,6 +263,9 @@ class DetectionEval:
                      class_tps[class_name]['avg_disp_err'],
                      class_tps[class_name]['final_disp_err'],
                      class_tps[class_name]['miss_rate'],
+                     class_tps[class_name]['reverse_avg_disp_err'],
+                     class_tps[class_name]['reverse_final_disp_err'],
+                     class_tps[class_name]['reverse_miss_rate'],
                      ))
 
         return metrics_summary

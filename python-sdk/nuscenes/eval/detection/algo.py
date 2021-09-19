@@ -1,12 +1,13 @@
 # nuScenes dev-kit.
 # Code written by Oscar Beijbom, 2019.
 
+import re
 from typing import Callable
 
 import numpy as np
 
 from nuscenes.eval.common.data_classes import EvalBoxes
-from nuscenes.eval.common.utils import center_distance, scale_iou, yaw_diff, velocity_l2, attr_acc, cummean, ade, fde, miss_rate
+from nuscenes.eval.common.utils import center_distance, scale_iou, yaw_diff, velocity_l2, attr_acc, cummean, ade, fde, miss_rate, forecast_boxes
 from nuscenes.eval.detection.data_classes import DetectionMetricData
 import pdb
 
@@ -69,6 +70,9 @@ def accumulate(nusc,
                   'avg_disp_err' : [],
                   'final_disp_err' : [],
                   'miss_rate' : [],
+                  'reverse_avg_disp_err' : [],
+                  'reverse_final_disp_err' : [],
+                  'reverse_miss_rate' : [],
                   'conf': []}
 
     # ---------------------------------------------
@@ -103,14 +107,14 @@ def accumulate(nusc,
             # Since it is a match, update match data also.
             gt_box_match = gt_boxes[pred_box.sample_token][match_gt_idx]
 
-            mr = miss_rate(nusc, gt_box_match, pred_box)
+            #mr = miss_rate(nusc, gt_box_match, pred_box)
 
-            if mr == 0:
-                ftp.append(1)
-                ffp.append(0) 
-            else:
-                ftp.append(0)
-                ffp.append(1)  
+            #if mr == 0:
+            #    ftp.append(1)
+            #    ffp.append(0) 
+            #else:
+            #    ftp.append(0)
+            #    ffp.append(1)  
 
             match_data['trans_err'].append(center_distance(gt_box_match, pred_box))
             match_data['vel_err'].append(velocity_l2(gt_box_match, pred_box))
@@ -125,15 +129,57 @@ def accumulate(nusc,
             match_data['final_disp_err'].append(fde(nusc, gt_box_match, pred_box))
             match_data['miss_rate'].append(miss_rate(nusc, gt_box_match, pred_box))
 
+            match_data['reverse_avg_disp_err'].append(ade(nusc, gt_box_match, pred_box, reverse=True))
+            match_data['reverse_final_disp_err'].append(fde(nusc, gt_box_match, pred_box, reverse=True))
+            match_data['reverse_miss_rate'].append(miss_rate(nusc, gt_box_match, pred_box, reverse=True))
+
             match_data['conf'].append(pred_box.detection_score)
 
         else:
             # No match. Mark this as a false positive.
             tp.append(0)
             fp.append(1)
+            #ftp.append(0)
+            #ffp.append(1)
+            conf.append(pred_box.detection_score)
+
+    # ---------------------------------------------
+    # Match and accumulate forecasted match data.
+    # ---------------------------------------------
+
+    taken = set()  # Initially no gt bounding box is matched.
+    for ind in sortind:
+        pred_box = pred_boxes_list[ind]
+        pred_box = forecast_boxes(nusc, pred_box)[-1]
+        min_dist = np.inf
+        match_gt_idx = None
+
+        for gt_idx, gt_box in enumerate(gt_boxes[pred_box.sample_token]):
+            
+            # Find closest match among ground truth boxes
+            if gt_box.detection_name == class_name and not (pred_box.sample_token, gt_idx) in taken:
+                gt_box = forecast_boxes(nusc, gt_box)[-1]
+                this_distance = dist_fcn(gt_box, pred_box)
+                if this_distance < min_dist:
+                    min_dist = this_distance
+                    match_gt_idx = gt_idx
+
+        # If the closest match is close enough according to threshold we have a match!
+        is_match = min_dist < dist_th
+
+        if is_match:
+            taken.add((pred_box.sample_token, match_gt_idx))
+            #  Update tp, fp and confs.
+            ftp.append(1)
+            ffp.append(0)
+
+            # Since it is a match, update match data also.
+            gt_box_match = gt_boxes[pred_box.sample_token][match_gt_idx]
+
+        else:
+            # No match. Mark this as a false positive.
             ftp.append(0)
             ffp.append(1)
-            conf.append(pred_box.detection_score)
 
     # Check if we have any matches. If not, just return a "no predictions" array.
     if len(match_data['trans_err']) == 0:
@@ -194,6 +240,9 @@ def accumulate(nusc,
                                avg_disp_err=match_data['avg_disp_err'],
                                final_disp_err=match_data['final_disp_err'],
                                miss_rate=match_data['miss_rate'],
+                               reverse_avg_disp_err=match_data['reverse_avg_disp_err'],
+                               reverse_final_disp_err=match_data['reverse_final_disp_err'],
+                               reverse_miss_rate=match_data['reverse_miss_rate'],
                                )
 
 
@@ -221,11 +270,13 @@ def calc_fap(md: DetectionMetricData, min_recall: float, min_precision: float) -
     prec[prec < 0] = 0
     return float(np.mean(prec)) / (1.0 - min_precision)
 
-def calc_tp(md: DetectionMetricData, min_recall: float, metric_name: str) -> float:
+def calc_tp(md: DetectionMetricData, min_recall: float, metric_name: str, pct=1) -> float:
     """ Calculates true positive errors. """
 
     first_ind = round(100 * min_recall) + 1  # +1 to exclude the error at min recall.
     last_ind = md.max_recall_ind  # First instance of confidence = 0 is index of max achieved recall.
+
+    last_ind = int(pct * last_ind)
     if last_ind < first_ind:
         return 1.0  # Assign 1 here. If this happens for all classes, the score for that TP metric will be 0.
     else:

@@ -144,7 +144,7 @@ def create_motmetrics() -> MetricsHost:
     fields = [
         'num_frames', 'obj_frequencies', 'num_matches', 'num_switches', 'num_false_positives', 'num_misses',
         'num_detections', 'num_objects', 'num_predictions', 'mostly_tracked', 'mostly_lost', 'num_fragmentations',
-        'motp', 'mota', 'precision', 'recall', 'track_ratios'
+        'motp', 'mota', 'precision', 'recall', 'track_ratios', 'pred_frequencies'
     ]
     for field in fields:
         mh.register(getattr(motmetrics.metrics, field), formatter='{:d}'.format)
