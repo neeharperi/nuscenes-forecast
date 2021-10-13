@@ -9,18 +9,149 @@ import time
 from typing import Tuple, Dict, Any
 
 import numpy as np
+from collections import defaultdict
 
 from nuscenes import NuScenes
 from nuscenes.eval.common.config import config_factory
 from nuscenes.eval.common.data_classes import EvalBoxes
+from nuscenes.eval.common.data_classes import EvalBox
 from nuscenes.eval.common.loaders import load_prediction, load_gt, add_center_dist, filter_eval_boxes
-from nuscenes.eval.detection.algo import accumulate, calc_ap, calc_tp, calc_fap
+from nuscenes.eval.detection.algo import accumulate, calc_ap, calc_ar, calc_tp, calc_fap, calc_far, calc_aap, calc_aar
 from nuscenes.eval.detection.constants import TP_METRICS
 from nuscenes.eval.detection.data_classes import DetectionConfig, DetectionMetrics, DetectionBox, \
     DetectionMetricDataList
+
+from copy import deepcopy
 from nuscenes.eval.detection.render import summary_plot, class_pr_curve, class_tp_curve, dist_pr_curve, visualize_sample
 from tqdm import tqdm 
+from itertools import tee 
+
 import pdb
+
+def window(iterable, size):
+    iters = tee(iterable, size)
+    for i in range(1, size):
+        for each in iters[i:]:
+            next(each, None)
+
+    return zip(*iters)
+
+def center_distance(gt_box: EvalBox, pred_box: EvalBox) -> float:
+    """
+    L2 distance between the box centers (xy only).
+    :param gt_box: GT annotation sample.
+    :param pred_box: Predicted sample.
+    :return: L2 distance.
+    """
+    return np.linalg.norm(np.array(pred_box.translation[:2]) - np.array(gt_box.translation[:2]))
+
+
+def get_time(nusc, src_token, dst_token):
+    time_last = 1e-6 * nusc.get('sample', src_token)["timestamp"]
+    time_first = 1e-6 * nusc.get('sample', dst_token)["timestamp"]
+    time_diff = time_first - time_last
+
+    return time_diff 
+
+def forecast_boxes(nusc, box, velocity):
+
+    forecast_tokens = box.forecast_sample_tokens
+    forecast_timediff = [get_time(nusc, token[0], token[1]) for token in window(forecast_tokens, 2)]
+    forecast_rotation = box.forecast_rotation
+    forecast_velocity = box.forecast_velocity
+    forecast_boxes = [box]
+
+    if velocity == "none":
+        for i in range(len(forecast_tokens) - 1):
+            new_box = deepcopy(forecast_boxes[-1])
+            new_box.translation = new_box.translation 
+            new_box.rotation = forecast_rotation[0]
+            forecast_boxes.append(new_box)
+
+    if velocity == "linear":
+        for i in range(len(forecast_tokens) - 1):
+            new_box = deepcopy(forecast_boxes[-1])
+            new_box.translation = new_box.translation + forecast_timediff[i] * np.append(forecast_velocity[0], 0)
+            new_box.rotation = forecast_rotation[0]
+            forecast_boxes.append(new_box)
+    
+    elif velocity == "nonlinear":
+        for i in range(len(forecast_tokens) - 1):
+            new_box = deepcopy(forecast_boxes[-1])
+            new_box.translation = new_box.translation + forecast_timediff[i] * np.append(forecast_velocity[i], 0)
+            new_box.rotation = forecast_rotation[i]
+            forecast_boxes.append(new_box)    
+    
+    return forecast_boxes
+
+def trajectory(nusc, box: DetectionBox, thresh : float = 0.5) -> float:
+    
+    target = forecast_boxes(nusc, box, velocity="nonlinear")[-1]
+
+    static_forecast = forecast_boxes(nusc, box, velocity="none")[-1]
+    linear_forecast = forecast_boxes(nusc, box, velocity="linear")[-1]
+
+    if center_distance(target, static_forecast) < thresh:
+        return "static"
+    elif center_distance(target, linear_forecast) < thresh:
+        return "linear"
+    else:
+        return "nonlinear"
+
+def reverse_boxes(nusc, boxes):
+    reverse_tokens = boxes.forecast_sample_tokens
+    reverse_timediff = [get_time(nusc, token[0], token[1]) for token in window(reverse_tokens, 2)]
+    reverse_rotation = boxes.forecast_rotation
+    reverse_velocity = boxes.forecast_velocity
+    reverse_boxes = [boxes]
+
+    for i in range(len(reverse_tokens) - 1):
+        new_box = deepcopy(reverse_boxes[-1])
+        new_box.translation = new_box.translation - reverse_timediff[i] * np.append(reverse_velocity[i], 0)
+        new_box.rotation = reverse_rotation[i]
+        reverse_boxes.append(new_box)
+
+    forecast_boxes = reverse_boxes[::-1]
+    
+    sample_token = forecast_boxes[0].sample_token
+    forecast_sample_tokens = forecast_boxes[0].forecast_sample_tokens
+    reverse_sample_tokens = forecast_boxes[0].reverse_sample_tokens
+
+    forecast_velocity = forecast_boxes[0].forecast_velocity[::-1]
+    forecast_rotation = forecast_boxes[0].forecast_rotation[::-1]
+    forecast_rvelocity = forecast_boxes[0].forecast_rvelocity[::-1]
+    forecast_rrotation = forecast_boxes[0].forecast_rrotation[::-1]
+    velocity = forecast_velocity[0]
+    rotation = forecast_rotation[0]
+    rvelocity = forecast_rvelocity[0]
+    rrotation = forecast_rrotation[0]
+    translation = forecast_boxes[0].translation
+    size = forecast_boxes[0].size
+    num_pts = forecast_boxes[0].num_pts
+    ego_translation = forecast_boxes[0].ego_translation
+    detection_name = forecast_boxes[0].detection_name
+    detection_score = forecast_boxes[0].detection_score
+    attribute_name = forecast_boxes[0].attribute_name
+
+    box = DetectionBox(sample_token,
+                        forecast_sample_tokens,
+                        reverse_sample_tokens,
+                        translation,
+                        size,
+                        rotation,
+                        forecast_rotation,
+                        rrotation,
+                        forecast_rrotation,
+                        velocity,
+                        forecast_velocity,
+                        rvelocity,
+                        forecast_rvelocity,
+                        ego_translation,
+                        num_pts,
+                        detection_name,
+                        detection_score,
+                        attribute_name)
+    return box
 
 class DetectionEval:
     """
@@ -50,7 +181,10 @@ class DetectionEval:
                  output_dir: str = None,
                  verbose: bool = True,
                  forecast: int = 6,
-                 tp_pct: float = 0.6):
+                 tp_pct: float = 0.6,
+                 reverse: bool = False,
+                 static_only: bool = False,
+                 cohort_analysis: bool = False):
         """
         Initialize a DetectionEval object.
         :param nusc: A NuScenes object.
@@ -68,6 +202,9 @@ class DetectionEval:
         self.cfg = config
         self.forecast = forecast
         self.tp_pct = tp_pct
+        self.reverse = reverse
+        self.static_only = static_only
+        self.cohort_analysis = cohort_analysis
 
         # Check result file exists.
         assert os.path.exists(result_path), 'Error: The result file does not exist!'
@@ -88,6 +225,25 @@ class DetectionEval:
 
         assert set(self.pred_boxes.sample_tokens) == set(self.gt_boxes.sample_tokens), \
             "Samples in split doesn't match samples in predictions."
+        
+        if self.cohort_analysis:
+            for sample_token in self.pred_boxes.boxes.keys():
+                for box in self.pred_boxes.boxes[sample_token]:
+                    label = trajectory(nusc, box)
+                    box.detection_name = label + "_" + box.detection_name
+
+            for sample_token in self.gt_boxes.boxes.keys():
+                for box in self.gt_boxes.boxes[sample_token]:
+                    label = trajectory(nusc, box)
+                    box.detection_name = label + "_" + box.detection_name
+
+        if self.static_only:
+            for sample_token in self.pred_boxes.boxes.keys():
+                self.pred_boxes.boxes[sample_token] = [boxes for boxes in self.pred_boxes.boxes[sample_token] if np.linalg.norm(boxes.velocity) < 0.05]
+
+        if self.reverse:
+            for sample_token in self.pred_boxes.boxes.keys():
+                self.pred_boxes.boxes[sample_token] = [reverse_boxes(self.nusc, boxes) for boxes in self.pred_boxes.boxes[sample_token]]
 
         # Add center distances.
         self.pred_boxes = add_center_dist(nusc, self.pred_boxes)
@@ -102,6 +258,7 @@ class DetectionEval:
         self.gt_boxes = filter_eval_boxes(nusc, self.gt_boxes, self.cfg.class_range, verbose=verbose)
         
         self.sample_tokens = self.gt_boxes.sample_tokens
+
 
     def evaluate(self) -> Tuple[DetectionMetrics, DetectionMetricDataList]:
         """
@@ -131,10 +288,21 @@ class DetectionEval:
             # Compute APs.
             for dist_th in self.cfg.dist_ths:
                 metric_data = metric_data_list[(class_name, dist_th)]
-                ap = calc_ap(metric_data, self.cfg.min_recall, self.cfg.min_precision)
-                fap = calc_fap(metric_data, self.cfg.min_recall, self.cfg.min_precision)
+                ap = calc_ap(deepcopy(metric_data), self.cfg.min_recall, self.cfg.min_precision)
+                ar = calc_ar(deepcopy(metric_data))
+
+                fap = calc_fap(deepcopy(metric_data), self.cfg.min_recall, self.cfg.min_precision)
+                far = calc_far(deepcopy(metric_data))
+
+                aap = calc_aap(deepcopy(metric_data), self.cfg.min_recall, self.cfg.min_precision)
+                aar = calc_aar(deepcopy(metric_data))
+
                 metrics.add_label_ap(class_name, dist_th, ap)
+                metrics.add_label_ar(class_name, dist_th, ar)
                 metrics.add_label_fap(class_name, dist_th, fap)
+                metrics.add_label_far(class_name, dist_th, far)
+                metrics.add_label_aap(class_name, dist_th, aap)
+                metrics.add_label_aar(class_name, dist_th, aar)
 
             # Compute TP metrics.
             for metric_name in TP_METRICS:
@@ -152,7 +320,7 @@ class DetectionEval:
 
         return metrics, metric_data_list
 
-    def render(self, metrics: DetectionMetrics, md_list: DetectionMetricDataList) -> None:
+    def render(self, metrics: DetectionMetrics, md_list: DetectionMetricDataList, cohort_analysis=False) -> None:
         """
         Renders various PR and TP curves.
         :param metrics: DetectionMetrics instance.
@@ -165,7 +333,7 @@ class DetectionEval:
             return os.path.join(self.plot_dir, name + '.pdf')
 
         summary_plot(md_list, metrics, min_precision=self.cfg.min_precision, min_recall=self.cfg.min_recall,
-                     dist_th_tp=self.cfg.dist_th_tp, savepath=savepath('summary'))
+                     dist_th_tp=self.cfg.dist_th_tp, savepath=savepath('summary'), cohort_analysis=cohort_analysis)
 
         for detection_name in self.cfg.class_names:
             class_pr_curve(md_list, metrics, detection_name, self.cfg.min_precision, self.cfg.min_recall,
@@ -180,7 +348,8 @@ class DetectionEval:
 
     def main(self,
              plot_examples: int = 0,
-             render_curves: bool = True) -> Dict[str, Any]:
+             render_curves: bool = True,
+             cohort_analysis: bool = False) -> Dict[str, Any]:
         """
         Main function that loads the evaluation code, visualizes samples, runs the evaluation and renders stat plots.
         :param plot_examples: How many example visualizations to write to disk.
@@ -212,7 +381,7 @@ class DetectionEval:
 
         # Render PR and TP curves.
         if render_curves:
-            self.render(metrics, metric_data_list)
+            self.render(metrics, metric_data_list, cohort_analysis=cohort_analysis)
 
         # Dump the metric data, meta and metrics to disk.
         if self.verbose:
@@ -226,7 +395,14 @@ class DetectionEval:
 
         # Print high-level metrics.
         print('mAP: %.4f' % (metrics_summary['mean_ap']))
+        print('mAR: %.4f' % (metrics_summary['mean_ar']))
+
         print('mFAP: %.4f' % (metrics_summary['mean_fap']))
+        print('mFAR: %.4f' % (metrics_summary['mean_far']))
+
+        print('mAAP: %.4f' % (metrics_summary['mean_aap']))
+        print('mAAR: %.4f' % (metrics_summary['mean_aar']))
+
         err_name_mapping = {
             'trans_err': 'mATE',
             'scale_err': 'mASE',
@@ -236,9 +412,9 @@ class DetectionEval:
             'avg_disp_err' : 'mADE',
             'final_disp_err' : 'mFDE',
             'miss_rate' : 'mMR',
-            'reverse_avg_disp_err' : 'mRADE',
-            'reverse_final_disp_err' : 'mRFDE',
-            'reverse_miss_rate' : 'mRMR',
+            #'reverse_avg_disp_err' : 'mRADE',
+            #'reverse_final_disp_err' : 'mRFDE',
+            #'reverse_miss_rate' : 'mRMR',
         }
         for tp_name, tp_val in metrics_summary['tp_errors'].items():
             print('%s: %.4f' % (err_name_mapping[tp_name], tp_val))
@@ -248,13 +424,20 @@ class DetectionEval:
         # Print per-class metrics.
         print()
         print('Per-class results:')
-        print('Object Class\tAP\tFAP\tATE\tASE\tAOE\tAVE\tAAE\tADE\tFDE\tMR\tRADE\tRFDE\tRMR')
+        print('Object Class\tAP\tAR\tFAP\tFAR\tAAP\tAAR\tATE\tASE\tAOE\tAVE\tAAE\tADE\tFDE\tMR')
         class_aps = metrics_summary['mean_dist_aps']
+        class_ars = metrics_summary['mean_dist_ars']
+
         class_faps = metrics_summary['mean_dist_faps']
+        class_fars = metrics_summary['mean_dist_fars']
+
+        class_aaps = metrics_summary['mean_dist_aaps']
+        class_aars = metrics_summary['mean_dist_aars']
+
         class_tps = metrics_summary['label_tp_errors']
         for class_name in class_aps.keys():
-            print('%s\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f'
-                  % (class_name, class_aps[class_name], class_faps[class_name],
+            print('%s\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f'
+                  % (class_name, class_aps[class_name], class_ars[class_name], class_faps[class_name], class_fars[class_name], class_aaps[class_name], class_aars[class_name],
                      class_tps[class_name]['trans_err'],
                      class_tps[class_name]['scale_err'],
                      class_tps[class_name]['orient_err'],
@@ -263,9 +446,9 @@ class DetectionEval:
                      class_tps[class_name]['avg_disp_err'],
                      class_tps[class_name]['final_disp_err'],
                      class_tps[class_name]['miss_rate'],
-                     class_tps[class_name]['reverse_avg_disp_err'],
-                     class_tps[class_name]['reverse_final_disp_err'],
-                     class_tps[class_name]['reverse_miss_rate'],
+                     #class_tps[class_name]['reverse_avg_disp_err'],
+                     #class_tps[class_name]['reverse_final_disp_err'],
+                     #class_tps[class_name]['reverse_miss_rate'],
                      ))
 
         return metrics_summary

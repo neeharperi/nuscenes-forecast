@@ -8,7 +8,7 @@ import numpy as np
 
 from nuscenes.eval.common.data_classes import MetricData, EvalBox
 from nuscenes.eval.common.utils import center_distance, miss_rate
-from nuscenes.eval.detection.constants import DETECTION_NAMES, ATTRIBUTE_NAMES, TP_METRICS
+from nuscenes.eval.detection.constants import ATTRIBUTE_NAMES, TP_METRICS
 import pdb
 
 class DetectionConfig:
@@ -25,7 +25,7 @@ class DetectionConfig:
                  max_boxes_per_sample: float,
                  mean_ap_weight: int):
 
-        assert set(class_range.keys()) == set(DETECTION_NAMES), "Class count mismatch."
+        #assert set(class_range.keys()) == set(DETECTION_NAMES), "Class count mismatch."
         assert dist_th_tp in dist_ths, "dist_th_tp must be in set of dist_ths."
 
         self.class_range = class_range
@@ -90,7 +90,7 @@ class DetectionMetricData(MetricData):
     def __init__(self,
                  recall: np.array,
                  precision: np.array,
-                 forecast_precision: np.array,
+                 forecast_precision,
                  confidence: np.array,
                  trans_err: np.array,
                  vel_err: np.array,
@@ -100,14 +100,16 @@ class DetectionMetricData(MetricData):
                  avg_disp_err: np.array,
                  final_disp_err: np.array,
                  miss_rate: np.array,
-                 reverse_avg_disp_err: np.array,
-                 reverse_final_disp_err: np.array,
-                 reverse_miss_rate: np.array):
+                 rec_val = None,
+                 rec_fval = None,
+                 #reverse_avg_disp_err: np.array,
+                 #reverse_final_disp_err: np.array,
+                 #reverse_miss_rate: np.array
+                 ):
 
         # Assert lengths.
         assert len(recall) == self.nelem
         assert len(precision) == self.nelem
-        assert len(forecast_precision) == self.nelem
         assert len(confidence) == self.nelem
         assert len(trans_err) == self.nelem
         assert len(vel_err) == self.nelem
@@ -117,9 +119,9 @@ class DetectionMetricData(MetricData):
         assert len(avg_disp_err) == self.nelem
         assert len(final_disp_err) == self.nelem
         assert len(miss_rate) == self.nelem
-        assert len(reverse_avg_disp_err) == self.nelem
-        assert len(reverse_final_disp_err) == self.nelem
-        assert len(reverse_miss_rate) == self.nelem
+        #assert len(reverse_avg_disp_err) == self.nelem
+        #assert len(reverse_final_disp_err) == self.nelem
+        #assert len(reverse_miss_rate) == self.nelem
 
         # Assert ordering.
         assert all(confidence == sorted(confidence, reverse=True))  # Confidences should be descending.
@@ -138,9 +140,11 @@ class DetectionMetricData(MetricData):
         self.avg_disp_err = avg_disp_err
         self.final_disp_err = final_disp_err
         self.miss_rate = miss_rate
-        self.reverse_avg_disp_err = reverse_avg_disp_err
-        self.reverse_final_disp_err = reverse_final_disp_err
-        self.reverse_miss_rate = reverse_miss_rate
+        self.rec_val = rec_val
+        self.rec_fval = rec_fval
+        #self.reverse_avg_disp_err = reverse_avg_disp_err
+        #self.reverse_final_disp_err = reverse_final_disp_err
+        #self.reverse_miss_rate = reverse_miss_rate
 
     def __eq__(self, other):
         eq = True
@@ -172,7 +176,7 @@ class DetectionMetricData(MetricData):
         return {
             'recall': self.recall.tolist(),
             'precision': self.precision.tolist(),
-            'forecast_precision': self.forecast_precision.tolist(),
+            'forecast_precision': [self.forecast_precision[i].tolist() for i in range(len(self.forecast_precision))],
             'confidence': self.confidence.tolist(),
             'trans_err': self.trans_err.tolist(),
             'vel_err': self.vel_err.tolist(),
@@ -182,9 +186,12 @@ class DetectionMetricData(MetricData):
             'avg_disp_err' : self.avg_disp_err.tolist(),
             'final_disp_err' : self.final_disp_err.tolist(),
             'miss_rate' : self.miss_rate.tolist(),
-            'reverse_avg_disp_err' : self.reverse_avg_disp_err.tolist(),
-            'reverse_final_disp_err' : self.reverse_final_disp_err.tolist(),
-            'reverse_miss_rate' : self.reverse_miss_rate.tolist(),
+            'rec_val' : self.rec_val.tolist(),
+            'rec_fval' : [self.rec_fval[i].tolist() for i in range(len(self.rec_fval))],
+
+            #'reverse_avg_disp_err' : self.reverse_avg_disp_err.tolist(),
+            #'reverse_final_disp_err' : self.reverse_final_disp_err.tolist(),
+            #'reverse_miss_rate' : self.reverse_miss_rate.tolist(),
         }
 
     @classmethod
@@ -192,7 +199,7 @@ class DetectionMetricData(MetricData):
         """ Initialize from serialized content. """
         return cls(recall=np.array(content['recall']),
                    precision=np.array(content['precision']),
-                   forecast_precision=np.array(content['forecast_precision']),
+                   forecast_precision=[np.array(content['forecast_precision'][i]) for i in range(len(content['forecast_precision']))],
                    confidence=np.array(content['confidence']),
                    trans_err=np.array(content['trans_err']),
                    vel_err=np.array(content['vel_err']),
@@ -202,17 +209,19 @@ class DetectionMetricData(MetricData):
                    avg_disp_err=np.array(content['avg_disp_err']),
                    final_disp_err=np.array(content['final_disp_err']),
                    miss_rate=np.array(content['miss_rate']),
-                   reverse_avg_disp_err=np.array(content['reverse_avg_disp_err']),
-                   reverse_final_disp_err=np.array(content['reverse_final_disp_err']),
-                   reverse_miss_rate=np.array(content['reverse_miss_rate']),
+                   rec_val=np.array(content['rec_val']),
+                   rec_fval=[np.array(content['rec_fval'][i]) for i in range(len(content['rec_fval']))],
+                   #reverse_avg_disp_err=np.array(content['reverse_avg_disp_err']),
+                   #reverse_final_disp_err=np.array(content['reverse_final_disp_err']),
+                   #reverse_miss_rate=np.array(content['reverse_miss_rate']),
                    )
 
     @classmethod
-    def no_predictions(cls):
+    def no_predictions(cls, timesteps=6):
         """ Returns a md instance corresponding to having no predictions. """
         return cls(recall=np.linspace(0, 1, cls.nelem),
                    precision=np.zeros(cls.nelem),
-                   forecast_precision=np.zeros(cls.nelem),
+                   forecast_precision=[np.zeros(cls.nelem) for i in range(timesteps)],
                    confidence=np.zeros(cls.nelem),
                    trans_err=np.ones(cls.nelem),
                    vel_err=np.ones(cls.nelem),
@@ -222,17 +231,19 @@ class DetectionMetricData(MetricData):
                    avg_disp_err=np.ones(cls.nelem),
                    final_disp_err=np.ones(cls.nelem),
                    miss_rate=np.ones(cls.nelem),
-                   reverse_avg_disp_err=np.ones(cls.nelem),
-                   reverse_final_disp_err=np.ones(cls.nelem),
-                   reverse_miss_rate=np.ones(cls.nelem),
+                   rec_val=np.ones(cls.nelem),
+                   rec_fval=[np.zeros(cls.nelem) for i in range(timesteps)],
+                   #reverse_avg_disp_err=np.ones(cls.nelem),
+                   #reverse_final_disp_err=np.ones(cls.nelem),
+                   #reverse_miss_rate=np.ones(cls.nelem),
                    )
 
     @classmethod
-    def random_md(cls):
+    def random_md(cls, timesteps=6):
         """ Returns an md instance corresponding to a random results. """
         return cls(recall=np.linspace(0, 1, cls.nelem),
                    precision=np.random.random(cls.nelem),
-                   forecast_precision=np.random.random(cls.nelem),
+                   forecast_precision=[np.random.random(cls.nelem) for i in range(timesteps)],
                    confidence=np.linspace(0, 1, cls.nelem)[::-1],
                    trans_err=np.random.random(cls.nelem),
                    vel_err=np.random.random(cls.nelem),
@@ -242,9 +253,11 @@ class DetectionMetricData(MetricData):
                    avg_disp_err=np.random.random(cls.nelem),
                    final_disp_err=np.random.random(cls.nelem),
                    miss_rate=np.random.random(cls.nelem),
-                   reverse_avg_disp_err=np.random.random(cls.nelem),
-                   reverse_final_disp_err=np.random.random(cls.nelem),
-                   reverse_miss_rate=np.random.random(cls.nelem),
+                   rec_val=np.random.random(cls.nelem),
+                   rec_fval=[np.random.random(cls.nelem) for i in range(timesteps)],
+                   #reverse_avg_disp_err=np.random.random(cls.nelem),
+                   #reverse_final_disp_err=np.random.random(cls.nelem),
+                   #reverse_miss_rate=np.random.random(cls.nelem),
                    )
 
 
@@ -255,7 +268,11 @@ class DetectionMetrics:
 
         self.cfg = cfg
         self._label_aps = defaultdict(lambda: defaultdict(float))
+        self._label_ars = defaultdict(lambda: defaultdict(float))
         self._label_faps = defaultdict(lambda: defaultdict(float))
+        self._label_fars = defaultdict(lambda: defaultdict(float))
+        self._label_aaps = defaultdict(lambda: defaultdict(float))
+        self._label_aars = defaultdict(lambda: defaultdict(float))
         self._label_tp_errors = defaultdict(lambda: defaultdict(float))
         self.eval_time = None
 
@@ -265,12 +282,36 @@ class DetectionMetrics:
     def get_label_ap(self, detection_name: str, dist_th: float) -> float:
         return self._label_aps[detection_name][dist_th]
 
+    def add_label_ar(self, detection_name: str, dist_th: float, ar: float) -> None:
+        self._label_ars[detection_name][dist_th] = ar
+    
+    def get_label_ar(self, detection_name: str, dist_th: float) -> float:
+        return self._label_ars[detection_name][dist_th]
+
     def add_label_fap(self, detection_name: str, dist_th: float, fap: float) -> None:
         self._label_faps[detection_name][dist_th] = fap
 
     def get_label_fap(self, detection_name: str, dist_th: float) -> float:
         return self._label_faps[detection_name][dist_th]
 
+    def add_label_far(self, detection_name: str, dist_th: float, far: float) -> None:
+        self._label_fars[detection_name][dist_th] = far
+
+    def get_label_far(self, detection_name: str, dist_th: float) -> float:
+        return self._label_fars[detection_name][dist_th]
+    
+    def add_label_aap(self, detection_name: str, dist_th: float, aap: float) -> None:
+        self._label_aaps[detection_name][dist_th] = aap
+
+    def get_label_aap(self, detection_name: str, dist_th: float) -> float:
+        return self._label_aaps[detection_name][dist_th]
+
+    def add_label_aar(self, detection_name: str, dist_th: float, aar: float) -> None:
+        self._label_aars[detection_name][dist_th] = aar
+
+    def get_label_aar(self, detection_name: str, dist_th: float) -> float:
+        return self._label_aars[detection_name][dist_th]
+    
     def add_label_tp(self, detection_name: str, metric_name: str, tp: float):
         self._label_tp_errors[detection_name][metric_name] = tp
 
@@ -286,9 +327,9 @@ class DetectionMetrics:
         return {class_name: np.mean(list(d.values())) for class_name, d in self._label_aps.items()}
 
     @property
-    def mean_ap(self) -> float:
-        """ Calculates the mean AP by averaging over distance thresholds and classes. """
-        return float(np.mean(list(self.mean_dist_aps.values())))
+    def mean_dist_ars(self) -> Dict[str, float]:
+        """ Calculates the mean over distance thresholds for each label. """
+        return {class_name: np.mean(list(d.values())) for class_name, d in self._label_ars.items()}
 
     @property
     def mean_dist_faps(self) -> Dict[str, float]:
@@ -296,10 +337,50 @@ class DetectionMetrics:
         return {class_name: np.mean(list(d.values())) for class_name, d in self._label_faps.items()}
 
     @property
+    def mean_dist_fars(self) -> Dict[str, float]:
+        """ Calculates the mean over distance thresholds for each label. """
+        return {class_name: np.mean(list(d.values())) for class_name, d in self._label_fars.items()}
+
+    @property
+    def mean_dist_aaps(self) -> Dict[str, float]:
+        """ Calculates the mean over distance thresholds for each label. """
+        return {class_name: np.mean(list(d.values())) for class_name, d in self._label_aaps.items()}
+
+    @property
+    def mean_dist_aars(self) -> Dict[str, float]:
+        """ Calculates the mean over distance thresholds for each label. """
+        return {class_name: np.mean(list(d.values())) for class_name, d in self._label_aars.items()}
+
+
+    @property
+    def mean_ap(self) -> float:
+        """ Calculates the mean AP by averaging over distance thresholds and classes. """
+        return float(np.mean(list(self.mean_dist_aps.values())))
+
+    @property
+    def mean_ar(self) -> float:
+        """ Calculates the mean AR by averaging over distance thresholds and classes. """
+        return float(np.mean(list(self.mean_dist_ars.values())))
+
+    @property
     def mean_fap(self) -> float:
         """ Calculates the mean FAP by averaging over distance thresholds and classes. """
         return float(np.mean(list(self.mean_dist_faps.values())))
 
+    @property
+    def mean_far(self) -> float:
+        """ Calculates the mean FAR by averaging over distance thresholds and classes. """
+        return float(np.mean(list(self.mean_dist_fars.values())))
+
+    @property
+    def mean_aap(self) -> float:
+        """ Calculates the mean FAP by averaging over distance thresholds and classes. """
+        return float(np.mean(list(self.mean_dist_aaps.values())))
+
+    @property
+    def mean_aar(self) -> float:
+        """ Calculates the mean FAR by averaging over distance thresholds and classes. """
+        return float(np.mean(list(self.mean_dist_aars.values())))
 
     @property
     def tp_errors(self) -> Dict[str, float]:
@@ -349,9 +430,21 @@ class DetectionMetrics:
             'label_aps': self._label_aps,
             'mean_dist_aps': self.mean_dist_aps,
             'mean_ap': self.mean_ap,
+            'label_ars': self._label_ars,
+            'mean_dist_ars': self.mean_dist_ars,
+            'mean_ar': self.mean_ar,
             'label_faps': self._label_faps,
             'mean_dist_faps': self.mean_dist_faps,
             'mean_fap': self.mean_fap,
+            'label_fars': self._label_fars,
+            'mean_dist_fars': self.mean_dist_fars,
+            'mean_far': self.mean_far,
+            'label_aaps': self._label_aaps,
+            'mean_dist_aaps': self.mean_dist_aaps,
+            'mean_aap': self.mean_aap,
+            'label_aars': self._label_aars,
+            'mean_dist_aars': self.mean_dist_aars,
+            'mean_aar': self.mean_aar,
             'label_tp_errors': self._label_tp_errors,
             'tp_errors': self.tp_errors,
             'tp_scores': self.tp_scores,
@@ -373,10 +466,25 @@ class DetectionMetrics:
             for dist_th, ap in label_aps.items():
                 metrics.add_label_ap(detection_name=detection_name, dist_th=float(dist_th), ap=float(ap))
 
+        for detection_name, label_ars in content['label_ars'].items():
+            for dist_th, ar in label_ars.items():
+                metrics.add_label_ar(detection_name=detection_name, dist_th=float(dist_th), ar=float(ar))
+
         for detection_name, label_faps in content['label_faps'].items():
             for dist_th, fap in label_faps.items():
                 metrics.add_label_fap(detection_name=detection_name, dist_th=float(dist_th), fap=float(fap))
 
+        for detection_name, label_fars in content['label_fars'].items():
+            for dist_th, far in label_fars.items():
+                metrics.add_label_far(detection_name=detection_name, dist_th=float(dist_th), far=float(far))
+
+        for detection_name, label_aaps in content['label_aaps'].items():
+            for dist_th, aap in label_aaps.items():
+                metrics.add_label_aap(detection_name=detection_name, dist_th=float(dist_th), aap=float(aap))
+
+        for detection_name, label_aars in content['label_aars'].items():
+            for dist_th, aar in label_aars.items():
+                metrics.add_label_aar(detection_name=detection_name, dist_th=float(dist_th), aar=float(aar))
 
         for detection_name, label_tps in content['label_tp_errors'].items():
             for metric_name, tp in label_tps.items():
@@ -387,7 +495,11 @@ class DetectionMetrics:
     def __eq__(self, other):
         eq = True
         eq = eq and self._label_aps == other._label_aps
+        eq = eq and self._label_ars == other._label_ars
         eq = eq and self._label_faps == other._label_faps
+        eq = eq and self._label_fars == other._label_fars
+        eq = eq and self._label_aaps == other._label_aaps
+        eq = eq and self._label_aars == other._label_aars
         eq = eq and self._label_tp_errors == other._label_tp_errors
         eq = eq and self.eval_time == other.eval_time
         eq = eq and self.cfg == other.cfg
@@ -421,7 +533,7 @@ class DetectionBox(EvalBox):
         super().__init__(sample_token, forecast_sample_tokens, reverse_sample_tokens, translation, size, rotation, forecast_rotation, rrotation, forecast_rrotation, velocity, forecast_velocity, rvelocity, forecast_rvelocity, ego_translation, num_pts)
 
         assert detection_name is not None, 'Error: detection_name cannot be empty!'
-        assert detection_name in DETECTION_NAMES, 'Error: Unknown detection_name %s' % detection_name
+        #assert detection_name in DETECTION_NAMES, 'Error: Unknown detection_name %s' % detection_name
 
         assert attribute_name in ATTRIBUTE_NAMES or attribute_name == '', \
             'Error: Unknown attribute_name %s' % attribute_name
