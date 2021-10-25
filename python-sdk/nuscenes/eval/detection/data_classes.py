@@ -90,6 +90,7 @@ class DetectionMetricData(MetricData):
     def __init__(self,
                  recall: np.array,
                  precision: np.array,
+                 precision_mr: np.array,
                  forecast_precision,
                  confidence: np.array,
                  trans_err: np.array,
@@ -130,6 +131,7 @@ class DetectionMetricData(MetricData):
         # Set attributes explicitly to help IDEs figure out what is going on.
         self.recall = recall
         self.precision = precision
+        self.precision_mr = precision_mr
         self.forecast_precision = forecast_precision
         self.confidence = confidence
         self.trans_err = trans_err
@@ -176,6 +178,7 @@ class DetectionMetricData(MetricData):
         return {
             'recall': self.recall.tolist(),
             'precision': self.precision.tolist(),
+            'precision_mr': self.precision_mr.tolist(),
             'forecast_precision': [self.forecast_precision[i].tolist() for i in range(len(self.forecast_precision))],
             'confidence': self.confidence.tolist(),
             'trans_err': self.trans_err.tolist(),
@@ -186,8 +189,8 @@ class DetectionMetricData(MetricData):
             'avg_disp_err' : self.avg_disp_err.tolist(),
             'final_disp_err' : self.final_disp_err.tolist(),
             'miss_rate' : self.miss_rate.tolist(),
-            'rec_val' : self.rec_val.tolist(),
-            'rec_fval' : [self.rec_fval[i].tolist() for i in range(len(self.rec_fval))],
+            #'rec_val' : self.rec_val.tolist(),
+            #'rec_fval' : [self.rec_fval[i].tolist() for i in range(len(self.rec_fval))],
 
             #'reverse_avg_disp_err' : self.reverse_avg_disp_err.tolist(),
             #'reverse_final_disp_err' : self.reverse_final_disp_err.tolist(),
@@ -199,6 +202,7 @@ class DetectionMetricData(MetricData):
         """ Initialize from serialized content. """
         return cls(recall=np.array(content['recall']),
                    precision=np.array(content['precision']),
+                   precision_mr=np.array(content['precision_mr']),
                    forecast_precision=[np.array(content['forecast_precision'][i]) for i in range(len(content['forecast_precision']))],
                    confidence=np.array(content['confidence']),
                    trans_err=np.array(content['trans_err']),
@@ -209,8 +213,8 @@ class DetectionMetricData(MetricData):
                    avg_disp_err=np.array(content['avg_disp_err']),
                    final_disp_err=np.array(content['final_disp_err']),
                    miss_rate=np.array(content['miss_rate']),
-                   rec_val=np.array(content['rec_val']),
-                   rec_fval=[np.array(content['rec_fval'][i]) for i in range(len(content['rec_fval']))],
+                   #rec_val=np.array(content['rec_val']),
+                   #rec_fval=[np.array(content['rec_fval'][i]) for i in range(len(content['rec_fval']))],
                    #reverse_avg_disp_err=np.array(content['reverse_avg_disp_err']),
                    #reverse_final_disp_err=np.array(content['reverse_final_disp_err']),
                    #reverse_miss_rate=np.array(content['reverse_miss_rate']),
@@ -221,6 +225,7 @@ class DetectionMetricData(MetricData):
         """ Returns a md instance corresponding to having no predictions. """
         return cls(recall=np.linspace(0, 1, cls.nelem),
                    precision=np.zeros(cls.nelem),
+                   precision_mr=np.zeros(cls.nelem),
                    forecast_precision=[np.zeros(cls.nelem) for i in range(timesteps)],
                    confidence=np.zeros(cls.nelem),
                    trans_err=np.ones(cls.nelem),
@@ -231,8 +236,8 @@ class DetectionMetricData(MetricData):
                    avg_disp_err=np.ones(cls.nelem),
                    final_disp_err=np.ones(cls.nelem),
                    miss_rate=np.ones(cls.nelem),
-                   rec_val=np.ones(cls.nelem),
-                   rec_fval=[np.zeros(cls.nelem) for i in range(timesteps)],
+                   #rec_val=None,
+                   #rec_fval=[None for i in range(timesteps)],
                    #reverse_avg_disp_err=np.ones(cls.nelem),
                    #reverse_final_disp_err=np.ones(cls.nelem),
                    #reverse_miss_rate=np.ones(cls.nelem),
@@ -243,6 +248,7 @@ class DetectionMetricData(MetricData):
         """ Returns an md instance corresponding to a random results. """
         return cls(recall=np.linspace(0, 1, cls.nelem),
                    precision=np.random.random(cls.nelem),
+                   precision_mr=np.random.random(cls.nelem),
                    forecast_precision=[np.random.random(cls.nelem) for i in range(timesteps)],
                    confidence=np.linspace(0, 1, cls.nelem)[::-1],
                    trans_err=np.random.random(cls.nelem),
@@ -253,8 +259,8 @@ class DetectionMetricData(MetricData):
                    avg_disp_err=np.random.random(cls.nelem),
                    final_disp_err=np.random.random(cls.nelem),
                    miss_rate=np.random.random(cls.nelem),
-                   rec_val=np.random.random(cls.nelem),
-                   rec_fval=[np.random.random(cls.nelem) for i in range(timesteps)],
+                   #rec_val=np.random.random(cls.nelem),
+                   #rec_fval=[np.random.random(cls.nelem) for i in range(timesteps)],
                    #reverse_avg_disp_err=np.random.random(cls.nelem),
                    #reverse_final_disp_err=np.random.random(cls.nelem),
                    #reverse_miss_rate=np.random.random(cls.nelem),
@@ -268,6 +274,7 @@ class DetectionMetrics:
 
         self.cfg = cfg
         self._label_aps = defaultdict(lambda: defaultdict(float))
+        self._label_aps_mr = defaultdict(lambda: defaultdict(float))
         self._label_ars = defaultdict(lambda: defaultdict(float))
         self._label_faps = defaultdict(lambda: defaultdict(float))
         self._label_fars = defaultdict(lambda: defaultdict(float))
@@ -281,6 +288,12 @@ class DetectionMetrics:
 
     def get_label_ap(self, detection_name: str, dist_th: float) -> float:
         return self._label_aps[detection_name][dist_th]
+
+    def add_label_ap_mr(self, detection_name: str, dist_th: float, ap_mr: float) -> None:
+        self._label_aps_mr[detection_name][dist_th] = ap_mr
+
+    def get_label_ap_mr(self, detection_name: str, dist_th: float) -> float:
+        return self._label_aps_mr[detection_name][dist_th]
 
     def add_label_ar(self, detection_name: str, dist_th: float, ar: float) -> None:
         self._label_ars[detection_name][dist_th] = ar
@@ -327,6 +340,11 @@ class DetectionMetrics:
         return {class_name: np.mean(list(d.values())) for class_name, d in self._label_aps.items()}
 
     @property
+    def mean_dist_aps_mr(self) -> Dict[str, float]:
+        """ Calculates the mean over distance thresholds for each label. """
+        return {class_name: np.mean(list(d.values())) for class_name, d in self._label_aps_mr.items()}
+
+    @property
     def mean_dist_ars(self) -> Dict[str, float]:
         """ Calculates the mean over distance thresholds for each label. """
         return {class_name: np.mean(list(d.values())) for class_name, d in self._label_ars.items()}
@@ -356,6 +374,12 @@ class DetectionMetrics:
     def mean_ap(self) -> float:
         """ Calculates the mean AP by averaging over distance thresholds and classes. """
         return float(np.mean(list(self.mean_dist_aps.values())))
+
+    @property
+    def mean_ap_mr(self) -> float:
+        """ Calculates the mean AP by averaging over distance thresholds and classes. """
+        return float(np.mean(list(self.mean_dist_aps_mr.values())))
+
 
     @property
     def mean_ar(self) -> float:
@@ -430,6 +454,9 @@ class DetectionMetrics:
             'label_aps': self._label_aps,
             'mean_dist_aps': self.mean_dist_aps,
             'mean_ap': self.mean_ap,
+            'label_aps_mr': self._label_aps_mr,
+            'mean_dist_aps_mr': self.mean_dist_aps_mr,
+            'mean_ap_mr': self.mean_ap_mr,
             'label_ars': self._label_ars,
             'mean_dist_ars': self.mean_dist_ars,
             'mean_ar': self.mean_ar,
@@ -466,6 +493,10 @@ class DetectionMetrics:
             for dist_th, ap in label_aps.items():
                 metrics.add_label_ap(detection_name=detection_name, dist_th=float(dist_th), ap=float(ap))
 
+        for detection_name, label_aps_mr in content['label_aps_mr'].items():
+            for dist_th, ap_mr in label_aps_mr.items():
+                metrics.add_label_ap_mr(detection_name=detection_name, dist_th=float(dist_th), ap_mr=float(ap_mr))
+
         for detection_name, label_ars in content['label_ars'].items():
             for dist_th, ar in label_ars.items():
                 metrics.add_label_ar(detection_name=detection_name, dist_th=float(dist_th), ar=float(ar))
@@ -495,6 +526,7 @@ class DetectionMetrics:
     def __eq__(self, other):
         eq = True
         eq = eq and self._label_aps == other._label_aps
+        eq = eq and self._label_aps_mr == other._label_aps_mr
         eq = eq and self._label_ars == other._label_ars
         eq = eq and self._label_faps == other._label_faps
         eq = eq and self._label_fars == other._label_fars
@@ -506,31 +538,23 @@ class DetectionMetrics:
 
         return eq
 
-
 class DetectionBox(EvalBox):
     """ Data class used during detection evaluation. Can be a prediction or ground truth."""
 
     def __init__(self,
                  sample_token: str = "",
-                 forecast_sample_tokens: list = [],
-                 reverse_sample_tokens: list = [],
                  translation: Tuple[float, float, float] = (0, 0, 0),
                  size: Tuple[float, float, float] = (0, 0, 0),
                  rotation: Tuple[float, float, float, float] = (0, 0, 0, 0),
-                 forecast_rotation: list = [],
-                 rrotation: list = [],
-                 forecast_rrotation: list = [],
                  velocity: Tuple[float, float] = (0, 0),
-                 forecast_velocity: list = [],
-                 rvelocity: Tuple[float, float] = (0, 0),
-                 forecast_rvelocity: list = [],
+                 forecast_boxes: list = [],
                  ego_translation: [float, float, float] = (0, 0, 0),  # Translation to ego vehicle in meters.
                  num_pts: int = -1,  # Nbr. LIDAR or RADAR inside the box. Only for gt boxes.
                  detection_name: str = 'car',  # The class name used in the detection challenge.
                  detection_score: float = -1.0,  # GT samples do not have a score.
                  attribute_name: str = ''):  # Box attribute. Each box can have at most 1 attribute.
 
-        super().__init__(sample_token, forecast_sample_tokens, reverse_sample_tokens, translation, size, rotation, forecast_rotation, rrotation, forecast_rrotation, velocity, forecast_velocity, rvelocity, forecast_rvelocity, ego_translation, num_pts)
+        super().__init__(sample_token, translation, size, rotation, velocity, ego_translation, num_pts)
 
         assert detection_name is not None, 'Error: detection_name cannot be empty!'
         #assert detection_name in DETECTION_NAMES, 'Error: Unknown detection_name %s' % detection_name
@@ -542,6 +566,7 @@ class DetectionBox(EvalBox):
         assert not np.any(np.isnan(detection_score)), 'Error: detection_score may not be NaN!'
 
         # Assign.
+        self.forecast_boxes = forecast_boxes
         self.detection_name = detection_name
         self.detection_score = detection_score
         self.attribute_name = attribute_name
@@ -551,9 +576,7 @@ class DetectionBox(EvalBox):
                 self.translation == other.translation and
                 self.size == other.size and
                 self.rotation == other.rotation and
-                self.rrotation == other.rrotation and
                 self.velocity == other.velocity and
-                self.rvelocity == other.rvelocity and
                 self.ego_translation == other.ego_translation and
                 self.num_pts == other.num_pts and
                 self.detection_name == other.detection_name and
@@ -564,18 +587,11 @@ class DetectionBox(EvalBox):
         """ Serialize instance into json-friendly format. """
         return {
             'sample_token': self.sample_token,
-            'forecast_sample_tokens' : self.forecast_sample_tokens,
-            'reverse_sample_tokens' : self.reverse_sample_tokens,
             'translation': self.translation,
             'size': self.size,
             'rotation': self.rotation,
-            'forecast_rotation' : self.forecast_rotation,
-            'rrotation': self.rrotation,
-            'forecast_rrotation' : self.forecast_rrotation,
             'velocity': self.velocity,
-            'forecast_velocity': self.forecast_velocity,
-            'rvelocity': self.rvelocity,
-            'forecast_rvelocity': self.forecast_rvelocity,
+            'forecast_boxes': self.forecast_boxes,
             'ego_translation': self.ego_translation,
             'num_pts': self.num_pts,
             'detection_name': self.detection_name,
@@ -587,18 +603,11 @@ class DetectionBox(EvalBox):
     def deserialize(cls, content: dict):
         """ Initialize from serialized content. """
         return cls(sample_token=content['sample_token'],
-                   forecast_sample_tokens=content["forecast_sample_tokens"],
-                   reverse_sample_tokens=content["reverse_sample_tokens"],
                    translation=tuple(content['translation']),
                    size=tuple(content['size']),
                    rotation=tuple(content['rotation']),
-                   forecast_rotation=content['forecast_rotation'],
-                   rrotation=tuple(content['rrotation']),
-                   forecast_rrotation=content['forecast_rrotation'],
                    velocity=tuple(content['velocity']),
-                   forecast_velocity=content['forecast_velocity'],
-                   rvelocity=tuple(content['rvelocity']),
-                   forecast_rvelocity=content['forecast_rvelocity'],
+                   forecast_boxes=content['forecast_boxes'],
                    ego_translation=(0.0, 0.0, 0.0) if 'ego_translation' not in content
                    else tuple(content['ego_translation']),
                    num_pts=-1 if 'num_pts' not in content else int(content['num_pts']),

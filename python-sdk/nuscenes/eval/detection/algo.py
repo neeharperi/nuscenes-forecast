@@ -7,7 +7,7 @@ from typing import Callable
 import numpy as np
 
 from nuscenes.eval.common.data_classes import EvalBoxes
-from nuscenes.eval.common.utils import center_distance, scale_iou, yaw_diff, velocity_l2, attr_acc, cummean, ade, fde, miss_rate, forecast_boxes
+from nuscenes.eval.common.utils import center_distance, scale_iou, yaw_diff, velocity_l2, attr_acc, cummean, ade, fde, miss_rate
 from nuscenes.eval.detection.data_classes import DetectionMetricData
 import pdb
 
@@ -46,7 +46,7 @@ def accumulate(nusc,
     pred_confs = [box.detection_score for box in pred_boxes_list]
 
     if npos == 0:
-        return DetectionMetricData.no_predictions(timesteps=len(pred_boxes_list[0].forecast_sample_tokens))
+        return DetectionMetricData.no_predictions(timesteps=len(pred_boxes_list[0].forecast_boxes))
 
     if verbose:
         print("Found {} PRED of class {} out of {} total across {} samples.".
@@ -58,6 +58,8 @@ def accumulate(nusc,
     # Do the actual matching.
     tp = []  # Accumulator of true positives.
     fp = []  # Accumulator of false positives.
+    tp_mr = []  # Accumulator of true positives.
+    fp_mr = []  # Accumulator of false positives.
     conf = []  # Accumulator of confidences.
 
     # match_data holds the extra metrics we calculate for each match.
@@ -106,14 +108,14 @@ def accumulate(nusc,
             # Since it is a match, update match data also.
             gt_box_match = gt_boxes[pred_box.sample_token][match_gt_idx]
 
-            #mr = miss_rate(nusc, gt_box_match, pred_box)
+            mr = miss_rate(nusc, gt_box_match, pred_box)
 
-            #if mr == 0:
-            #    ftp.append(1)
-            #    ffp.append(0) 
-            #else:
-            #    ftp.append(0)
-            #    ffp.append(1)  
+            if mr == 0:
+                tp_mr.append(1)
+                fp_mr.append(0) 
+            else:
+                tp_mr.append(0)
+                fp_mr.append(1)  
 
             match_data['trans_err'].append(center_distance(gt_box_match, pred_box))
             match_data['vel_err'].append(velocity_l2(gt_box_match, pred_box))
@@ -138,8 +140,8 @@ def accumulate(nusc,
             # No match. Mark this as a false positive.
             tp.append(0)
             fp.append(1)
-            #ftp.append(0)
-            #ffp.append(1)
+            tp_mr.append(0)
+            fp_mr.append(1)
             conf.append(pred_box.detection_score)
 
     # ---------------------------------------------
@@ -148,13 +150,13 @@ def accumulate(nusc,
     ftp = []   
     ffp = []
 
-    for i in range(len(pred_boxes_list[0].forecast_sample_tokens)):
+    for i in range(len(pred_boxes_list[0].forecast_boxes)):
         itp = []
         ifp = []
         taken = set()  # Initially no gt bounding box is matched.
         for ind in sortind:
             pred_box = pred_boxes_list[ind]
-            pred_box = forecast_boxes(nusc, pred_box)[i]
+            pred_box = pred_box.forecast_boxes[i]
             min_dist = np.inf
             match_gt_idx = None
 
@@ -162,7 +164,8 @@ def accumulate(nusc,
                 
                 # Find closest match among ground truth boxes
                 if gt_box.detection_name == class_name and not (pred_box.sample_token, gt_idx) in taken:
-                    gt_box = forecast_boxes(nusc, gt_box)[i]
+                    gt_box = gt_box.forecast_boxes[i]
+                    min_dist = np.inf
                     this_distance = dist_fcn(gt_box, pred_box)
                     if this_distance < min_dist:
                         min_dist = this_distance
@@ -190,7 +193,7 @@ def accumulate(nusc,
 
     # Check if we have any matches. If not, just return a "no predictions" array.
     if len(match_data['trans_err']) == 0:
-        return DetectionMetricData.no_predictions(timesteps=len(pred_boxes_list[0].forecast_sample_tokens))
+        return DetectionMetricData.no_predictions(timesteps=len(pred_boxes_list[0].forecast_boxes))
 
     # ---------------------------------------------
     # Calculate and interpolate precision and recall
@@ -201,6 +204,9 @@ def accumulate(nusc,
     tp = np.cumsum(tp).astype(np.float)
     fp = np.cumsum(fp).astype(np.float)
 
+    tp_mr = np.cumsum(tp_mr).astype(np.float)
+    fp_mr = np.cumsum(fp_mr).astype(np.float)
+
     true_fpos = [np.sum(ftp[i]) for i in range(len(ftp))]
     ftp = [np.cumsum(ftp[i]).astype(np.float) for i in range(len(ftp))]
     ffp = [np.cumsum(ffp[i]).astype(np.float) for i in range(len(ffp))]
@@ -210,11 +216,15 @@ def accumulate(nusc,
     prec = tp / (fp + tp)
     rec = tp / float(npos)
 
+    prec_mr = tp_mr / (fp_mr + tp_mr) 
+    rec_mr = tp_mr / float(npos)
+
     fprec = [ftp[i] / (ffp[i] + ftp[i]) for i in range(len(ftp))]
     frec = [ftp[i] / float(npos) for i in range(len(ftp))]
 
     rec_interp = np.linspace(0, 1, DetectionMetricData.nelem)  # 101 steps, from 0% to 100% recall.
     prec = np.interp(rec_interp, rec, prec, right=0)
+    prec_mr = np.interp(rec_interp, rec_mr, prec_mr, right=0)
     fprec = [np.interp(rec_interp, frec[i], fprec[i], right=0) for i in range(len(fprec))]
     conf = np.interp(rec_interp, rec, conf, right=0)
 
@@ -241,6 +251,7 @@ def accumulate(nusc,
     # ---------------------------------------------
     return DetectionMetricData(recall=rec,
                                precision=prec,
+                               precision_mr=prec_mr,
                                forecast_precision=fprec,
                                confidence=conf,
                                trans_err=match_data['trans_err'],
@@ -266,6 +277,18 @@ def calc_ap(md: DetectionMetricData, min_recall: float, min_precision: float) ->
     assert 0 <= min_recall <= 1
 
     prec = np.copy(md.precision)
+    prec = prec[round(100 * min_recall) + 1:]  # Clip low recalls. +1 to exclude the min recall bin.
+    prec -= min_precision  # Clip low precision
+    prec[prec < 0] = 0
+    return float(np.mean(prec)) / (1.0 - min_precision)
+
+def calc_ap_mr(md: DetectionMetricData, min_recall: float, min_precision: float) -> float:
+    """ Calculated average precision. """
+
+    assert 0 <= min_precision < 1
+    assert 0 <= min_recall <= 1
+
+    prec = np.copy(md.precision_mr)
     prec = prec[round(100 * min_recall) + 1:]  # Clip low recalls. +1 to exclude the min recall bin.
     prec -= min_precision  # Clip low precision
     prec[prec < 0] = 0
@@ -317,9 +340,12 @@ def calc_aar(md: DetectionMetricData) -> float:
 
     if md.rec_fval is None:
         return 0
-    else:
-        ar = [md.rec_fval[i] for i in range(len(md.rec_fval))]     
-        return np.mean(ar)
+        
+    ar = []
+    for i in range(len(md.rec_fval)):
+        ar.append(md.rec_fval[i])
+    
+    return np.mean(ar)
 
 def calc_tp(md: DetectionMetricData, min_recall: float, metric_name: str, pct=1) -> float:
     """ Calculates true positive errors. """

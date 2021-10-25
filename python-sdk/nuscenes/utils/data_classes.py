@@ -471,17 +471,13 @@ class Box:
 
     def __init__(self,
                  center: List[float],
-                 rcenter: List[float],
                  size: List[float],
                  orientation: Quaternion,
-                 rorientation: Quaternion,
                  label: int = np.nan,
                  score: float = np.nan,
                  velocity: Tuple = (np.nan, np.nan, np.nan),
-                 rvelocity: Tuple = (np.nan, np.nan, np.nan),
                  name: str = None,
-                 token: str = None,
-                 rtoken: str = None):
+                 token: str = None):
         """
         :param center: Center of box given as x, y, z.
         :param size: Size of box in width, length, height.
@@ -493,53 +489,40 @@ class Box:
         :param token: Unique string identifier from DB.
         """
         assert not np.any(np.isnan(center))
-        assert not np.any(np.isnan(rcenter))
 
         assert not np.any(np.isnan(size))
         assert len(center) == 3
-        assert len(rcenter) == 3
         assert len(size) == 3
         assert type(orientation) == Quaternion
 
         self.center = np.array(center)
-        self.rcenter = np.array(rcenter)
         self.wlh = np.array(size)
         self.orientation = orientation
-        self.rorientation = rorientation
         self.label = int(label) if not np.isnan(label) else label
         self.score = float(score) if not np.isnan(score) else score
         self.velocity = np.array(velocity)
-        self.rvelocity = np.array(rvelocity)
         self.name = name
         self.token = token
-        self.rtoken = rtoken
 
     def __eq__(self, other):
         center = np.allclose(self.center, other.center)
-        rcenter = np.allclose(self.rcenter, other.rcenter)
         wlh = np.allclose(self.wlh, other.wlh)
         orientation = np.allclose(self.orientation.elements, other.orientation.elements)
-        rorientation = np.allclose(self.rorientation.elements, other.rorientation.elements)
         label = (self.label == other.label) or (np.isnan(self.label) and np.isnan(other.label))
         score = (self.score == other.score) or (np.isnan(self.score) and np.isnan(other.score))
         vel = (np.allclose(self.velocity, other.velocity) or
                (np.all(np.isnan(self.velocity)) and np.all(np.isnan(other.velocity))))
-        rvel = (np.allclose(self.rvelocity, other.rvelocity) or
-               (np.all(np.isnan(self.rvelocity)) and np.all(np.isnan(other.rvelocity))))
-        return center and wlh and orientation and label and score and vel and rvel
+        return center and wlh and orientation and label and score and vel
 
     def __repr__(self):
-        repr_str = 'label: {}, score: {:.2f}, xyz: [{:.2f}, {:.2f}, {:.2f}], rxyz: [{:.2f}, {:.2f}, {:.2f}], wlh: [{:.2f}, {:.2f}, {:.2f}], ' \
+        repr_str = 'label: {}, score: {:.2f}, xyz: [{:.2f}, {:.2f}, {:.2f}], wlh: [{:.2f}, {:.2f}, {:.2f}], ' \
                    'rot axis: [{:.2f}, {:.2f}, {:.2f}], ang(degrees): {:.2f}, ang(rad): {:.2f}, ' \
-                   'rrot axis: [{:.2f}, {:.2f}, {:.2f}], rang(degrees): {:.2f}, rang(rad): {:.2f}, ' \
-                   'vel: {:.2f}, {:.2f}, {:.2f}, rvel: {:.2f}, {:.2f}, {:.2f}, name: {}, token: {}, rtoken: {}'
+                   'vel: {:.2f}, {:.2f}, {:.2f}, name: {}, token: {}'
 
-        return repr_str.format(self.label, self.score, self.center[0], self.center[1], self.center[2], self.rcenter[0], self.rcenter[1], self.rcenter[2], self.wlh[0],
+        return repr_str.format(self.label, self.score, self.center[0], self.center[1], self.center[2], self.wlh[0],
                                self.wlh[1], self.wlh[2], self.orientation.axis[0], self.orientation.axis[1],
                                self.orientation.axis[2], self.orientation.degrees, self.orientation.radians,
-                               self.rorientation.axis[0], self.rorientation.axis[1],
-                               self.rorientation.axis[2], self.rorientation.degrees, self.rorientation.radians,
-                               self.velocity[0], self.velocity[1], self.velocity[2], self.rvelocity[0], self.rvelocity[1], self.rvelocity[2], self.name, self.token, self.rtoken)
+                               self.velocity[0], self.velocity[1], self.velocity[2], self.name, self.token)
 
     @property
     def rotation_matrix(self) -> np.ndarray:
@@ -549,26 +532,12 @@ class Box:
         """
         return self.orientation.rotation_matrix
 
-    def rrotation_matrix(self) -> np.ndarray:
-        """
-        Return a rotation matrix.
-        :return: <np.float: 3, 3>. The box's rotation matrix.
-        """
-        return self.rorientation.rotation_matrix
-
     def translate(self, x: np.ndarray) -> None:
         """
         Applies a translation.
         :param x: <np.float: 3, 1>. Translation in x, y, z direction.
         """
         self.center += x
-
-    def rtranslate(self, x: np.ndarray) -> None:
-        """
-        Applies a translation.
-        :param x: <np.float: 3, 1>. Translation in x, y, z direction.
-        """
-        self.rcenter += x
 
     def rotate(self, quaternion: Quaternion) -> None:
         """
@@ -578,15 +547,6 @@ class Box:
         self.center = np.dot(quaternion.rotation_matrix, self.center)
         self.orientation = quaternion * self.orientation
         self.velocity = np.dot(quaternion.rotation_matrix, self.velocity)
-
-    def rrotate(self, quaternion: Quaternion) -> None:
-        """
-        Rotates box.
-        :param quaternion: Rotation to apply.
-        """
-        self.rcenter = np.dot(quaternion.rotation_matrix, self.rcenter)
-        self.rorientation = quaternion * self.rorientation
-        self.rvelocity = np.dot(quaternion.rotation_matrix, self.rvelocity)
 
     def corners(self, wlh_factor: float = 1.0) -> np.ndarray:
         """

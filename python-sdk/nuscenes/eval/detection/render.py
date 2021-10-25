@@ -18,6 +18,9 @@ from nuscenes.eval.detection.constants import TP_METRICS, getDetectionNames, DET
 from nuscenes.eval.detection.data_classes import DetectionMetrics, DetectionMetricData, DetectionMetricDataList
 from nuscenes.utils.data_classes import LidarPointCloud
 from nuscenes.utils.geometry_utils import view_points
+from nuscenes.utils.data_classes import Box
+from pyquaternion import Quaternion
+
 import cv2
 Axis = Any
 import pdb
@@ -142,13 +145,32 @@ def visualize_sample_forecast(nusc: NuScenes,
     cs_record = nusc.get('calibrated_sensor', sd_record['calibrated_sensor_token'])
     pose_record = nusc.get('ego_pose', sd_record['ego_pose_token'])
     
-    
     # Map GT boxes to lidar.
     boxes_gt, center_gt = [], []
-    
+
     for boxes in boxes_gt_global:
-        bxs = boxes_to_sensor(boxes, pose_record, cs_record)
-        cntr = [b.center[0:2] for b in bxs]
+        bxs, cntr = [], []
+
+        for box in boxes.forecast_boxes:
+            b = Box(center = box["translation"],
+                    size = box["size"],
+                    orientation = Quaternion(box["rotation"]),
+                    velocity = np.array(list(box["velocity"]) + [0]),
+                    name = box["detection_name"],
+                    token = box["sample_token"]
+                    )
+
+            # Move box to ego vehicle coord system.
+            b.translate(-np.array(pose_record['translation']))
+            b.rotate(Quaternion(pose_record['rotation']).inverse)
+
+            #  Move box to sensor coord system.
+            b.translate(-np.array(cs_record['translation']))
+            b.rotate(Quaternion(cs_record['rotation']).inverse)
+
+            bxs.append(b)
+            cntr.append(b.center[:2])
+
         boxes_gt.append(bxs[0])
         center_gt.append(cntr)
 
@@ -156,8 +178,29 @@ def visualize_sample_forecast(nusc: NuScenes,
     boxes_est, center_est = [], []
     
     for boxes in boxes_est_global:
-        bxs = boxes_to_sensor(boxes, pose_record, cs_record)
-        cntr = [b.center[0:2] for b in bxs]
+        bxs, cntr = [], []
+
+        for box in boxes.forecast_boxes:
+            b = Box(center = box["translation"],
+                    size = box["size"],
+                    orientation = Quaternion(box["rotation"]),
+                    velocity = np.array(list(box["velocity"]) + [0]),
+                    name = box["detection_name"],
+                    score = box["detection_score"],
+                    token = box["sample_token"]
+                    )
+
+            # Move box to ego vehicle coord system.
+            b.translate(-np.array(pose_record['translation']))
+            b.rotate(Quaternion(pose_record['rotation']).inverse)
+
+            #  Move box to sensor coord system.
+            b.translate(-np.array(cs_record['translation']))
+            b.rotate(Quaternion(cs_record['rotation']).inverse)
+
+            bxs.append(b)
+            cntr.append(b.center[:2])
+
         boxes_est.append(bxs[0])
         center_est.append(cntr)
 
@@ -191,6 +234,9 @@ def visualize_sample_forecast(nusc: NuScenes,
         # Show only predictions with a high score.
         assert not np.isnan(box.score), 'Error: Box score cannot be NaN!'
         if box.score >= conf_th:
+            # Move box to ego vehicle coord system.
+
+            
             box.render_forecast(ax, view=np.eye(4), colors=('b', 'b', 'b'), linewidth=1, center=center)
 
     # Limit visible range.

@@ -13,18 +13,10 @@ class EvalBox(abc.ABC):
 
     def __init__(self,
                  sample_token: str = "",
-                 forecast_sample_token: list = [],
-                 reverse_sample_token: list = [],
                  translation: Tuple[float, float, float] = (0, 0, 0),
                  size: Tuple[float, float, float] = (0, 0, 0),
                  rotation: Tuple[float, float, float, float] = (0, 0, 0, 0),
-                 forecast_rotation: list = [],
-                 rrotation: Tuple[float, float, float, float] = (0, 0, 0, 0),
-                 forecast_rrotation: list = [],
                  velocity: Tuple[float, float] = (0, 0),
-                 forecast_velocity: list = [],
-                 rvelocity: Tuple[float, float] = (0, 0),
-                 forecast_rvelocity: list = [],
                  ego_translation: Tuple[float, float, float] = (0, 0, 0),  # Translation to ego vehicle in meters.
                  num_pts: int = -1):  # Nbr. LIDAR or RADAR inside the box. Only for gt boxes.
 
@@ -51,18 +43,10 @@ class EvalBox(abc.ABC):
 
         # Assign.
         self.sample_token = sample_token
-        self.forecast_sample_tokens = forecast_sample_token
-        self.reverse_sample_tokens = reverse_sample_token
         self.translation = translation
         self.size = size
         self.rotation = rotation
-        self.forecast_rotation = forecast_rotation
-        self.rrotation = rrotation
-        self.forecast_rrotation = forecast_rrotation
         self.velocity = velocity
-        self.forecast_velocity = forecast_velocity
-        self.rvelocity = rvelocity
-        self.forecast_rvelocity = forecast_rvelocity
         self.ego_translation = ego_translation
         self.num_pts = num_pts
 

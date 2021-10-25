@@ -16,7 +16,7 @@ from nuscenes.eval.common.config import config_factory
 from nuscenes.eval.common.data_classes import EvalBoxes
 from nuscenes.eval.common.data_classes import EvalBox
 from nuscenes.eval.common.loaders import load_prediction, load_gt, add_center_dist, filter_eval_boxes
-from nuscenes.eval.detection.algo import accumulate, calc_ap, calc_ar, calc_tp, calc_fap, calc_far, calc_aap, calc_aar
+from nuscenes.eval.detection.algo import accumulate, calc_ap, calc_ap_mr, calc_ar, calc_tp, calc_fap, calc_far, calc_aap, calc_aar
 from nuscenes.eval.detection.constants import TP_METRICS
 from nuscenes.eval.detection.data_classes import DetectionConfig, DetectionMetrics, DetectionBox, \
     DetectionMetricDataList
@@ -36,6 +36,15 @@ def window(iterable, size):
 
     return zip(*iters)
 
+
+def get_time(nusc, src_token, dst_token):
+    time_last = 1e-6 * nusc.get('sample', src_token)["timestamp"]
+    time_first = 1e-6 * nusc.get('sample', dst_token)["timestamp"]
+    time_diff = time_first - time_last
+
+    return time_diff 
+
+
 def center_distance(gt_box: EvalBox, pred_box: EvalBox) -> float:
     """
     L2 distance between the box centers (xy only).
@@ -45,51 +54,22 @@ def center_distance(gt_box: EvalBox, pred_box: EvalBox) -> float:
     """
     return np.linalg.norm(np.array(pred_box.translation[:2]) - np.array(gt_box.translation[:2]))
 
+def displacement(nusc, box):
+    forecast = box.forecast_boxes
+    token = [box.sample_token for box in forecast]
+    time = [get_time(nusc, src, dst) for src, dst in window(token, 2)]
 
-def get_time(nusc, src_token, dst_token):
-    time_last = 1e-6 * nusc.get('sample', src_token)["timestamp"]
-    time_first = 1e-6 * nusc.get('sample', dst_token)["timestamp"]
-    time_diff = time_first - time_last
+    disp = np.zeros(2)
+    for t in time:
+        disp += t * np.array(box.velocity)
 
-    return time_diff 
+    return disp
 
-def forecast_boxes(nusc, box, velocity):
-
-    forecast_tokens = box.forecast_sample_tokens
-    forecast_timediff = [get_time(nusc, token[0], token[1]) for token in window(forecast_tokens, 2)]
-    forecast_rotation = box.forecast_rotation
-    forecast_velocity = box.forecast_velocity
-    forecast_boxes = [box]
-
-    if velocity == "none":
-        for i in range(len(forecast_tokens) - 1):
-            new_box = deepcopy(forecast_boxes[-1])
-            new_box.translation = new_box.translation 
-            new_box.rotation = forecast_rotation[0]
-            forecast_boxes.append(new_box)
-
-    if velocity == "linear":
-        for i in range(len(forecast_tokens) - 1):
-            new_box = deepcopy(forecast_boxes[-1])
-            new_box.translation = new_box.translation + forecast_timediff[i] * np.append(forecast_velocity[0], 0)
-            new_box.rotation = forecast_rotation[0]
-            forecast_boxes.append(new_box)
-    
-    elif velocity == "nonlinear":
-        for i in range(len(forecast_tokens) - 1):
-            new_box = deepcopy(forecast_boxes[-1])
-            new_box.translation = new_box.translation + forecast_timediff[i] * np.append(forecast_velocity[i], 0)
-            new_box.rotation = forecast_rotation[i]
-            forecast_boxes.append(new_box)    
-    
-    return forecast_boxes
-
-def trajectory(nusc, box: DetectionBox, thresh : float = 0.5) -> float:
-    
-    target = forecast_boxes(nusc, box, velocity="nonlinear")[-1]
-
-    static_forecast = forecast_boxes(nusc, box, velocity="none")[-1]
-    linear_forecast = forecast_boxes(nusc, box, velocity="linear")[-1]
+def trajectory(nusc, box: DetectionBox, thresh : float = 0.5, timesteps=7) -> float:
+    target = box.forecast_boxes[-1]
+    static_forecast = box.forecast_boxes[0]
+    linear_forecast = box
+    linear_forecast.translation = box.translation + np.array(list(displacement(nusc, box)) + [0])
 
     if center_distance(target, static_forecast) < thresh:
         return "static"
@@ -98,59 +78,12 @@ def trajectory(nusc, box: DetectionBox, thresh : float = 0.5) -> float:
     else:
         return "nonlinear"
 
-def reverse_boxes(nusc, boxes):
-    reverse_tokens = boxes.forecast_sample_tokens
-    reverse_timediff = [get_time(nusc, token[0], token[1]) for token in window(reverse_tokens, 2)]
-    reverse_rotation = boxes.forecast_rotation
-    reverse_velocity = boxes.forecast_velocity
-    reverse_boxes = [boxes]
-
-    for i in range(len(reverse_tokens) - 1):
-        new_box = deepcopy(reverse_boxes[-1])
-        new_box.translation = new_box.translation - reverse_timediff[i] * np.append(reverse_velocity[i], 0)
-        new_box.rotation = reverse_rotation[i]
-        reverse_boxes.append(new_box)
-
-    forecast_boxes = reverse_boxes[::-1]
-    
-    sample_token = forecast_boxes[0].sample_token
-    forecast_sample_tokens = forecast_boxes[0].forecast_sample_tokens
-    reverse_sample_tokens = forecast_boxes[0].reverse_sample_tokens
-
-    forecast_velocity = forecast_boxes[0].forecast_velocity[::-1]
-    forecast_rotation = forecast_boxes[0].forecast_rotation[::-1]
-    forecast_rvelocity = forecast_boxes[0].forecast_rvelocity[::-1]
-    forecast_rrotation = forecast_boxes[0].forecast_rrotation[::-1]
-    velocity = forecast_velocity[0]
-    rotation = forecast_rotation[0]
-    rvelocity = forecast_rvelocity[0]
-    rrotation = forecast_rrotation[0]
-    translation = forecast_boxes[0].translation
-    size = forecast_boxes[0].size
-    num_pts = forecast_boxes[0].num_pts
-    ego_translation = forecast_boxes[0].ego_translation
-    detection_name = forecast_boxes[0].detection_name
-    detection_score = forecast_boxes[0].detection_score
-    attribute_name = forecast_boxes[0].attribute_name
-
-    box = DetectionBox(sample_token,
-                        forecast_sample_tokens,
-                        reverse_sample_tokens,
-                        translation,
-                        size,
-                        rotation,
-                        forecast_rotation,
-                        rrotation,
-                        forecast_rrotation,
-                        velocity,
-                        forecast_velocity,
-                        rvelocity,
-                        forecast_rvelocity,
-                        ego_translation,
-                        num_pts,
-                        detection_name,
-                        detection_score,
-                        attribute_name)
+def serialize_box(box, coordinate_transform=False):
+    box = DetectionBox(sample_token=box["sample_token"],
+                        translation=box["translation"],
+                        size=box["size"],
+                        rotation=box["rotation"],
+                        velocity=box["velocity"])
     return box
 
 class DetectionEval:
@@ -180,9 +113,8 @@ class DetectionEval:
                  eval_set: str,
                  output_dir: str = None,
                  verbose: bool = True,
-                 forecast: int = 6,
+                 forecast: int = 7,
                  tp_pct: float = 0.6,
-                 reverse: bool = False,
                  static_only: bool = False,
                  cohort_analysis: bool = False):
         """
@@ -202,7 +134,6 @@ class DetectionEval:
         self.cfg = config
         self.forecast = forecast
         self.tp_pct = tp_pct
-        self.reverse = reverse
         self.static_only = static_only
         self.cohort_analysis = cohort_analysis
 
@@ -219,9 +150,18 @@ class DetectionEval:
         # Load data.
         if verbose:
             print('Initializing nuScenes detection evaluation')
-        self.pred_boxes, self.meta = load_prediction(self.result_path, self.cfg.max_boxes_per_sample, DetectionBox,
-                                                     verbose=verbose)
+
+        self.pred_boxes, self.meta = load_prediction(self.result_path, self.cfg.max_boxes_per_sample, DetectionBox, verbose=verbose)
         self.gt_boxes = load_gt(self.nusc, self.eval_set, DetectionBox, verbose=verbose, forecast=forecast)
+        
+        print("Deserializing forecast data")
+        for sample_token in tqdm(self.gt_boxes.boxes.keys()):
+            for box in self.pred_boxes.boxes[sample_token]:
+                box.forecast_boxes = [serialize_box(box) for box in box.forecast_boxes]
+
+            for box in self.gt_boxes.boxes[sample_token]:
+                box.forecast_boxes = [serialize_box(box, coordinate_transform=True) for box in box.forecast_boxes]
+
 
         assert set(self.pred_boxes.sample_tokens) == set(self.gt_boxes.sample_tokens), \
             "Samples in split doesn't match samples in predictions."
@@ -229,21 +169,17 @@ class DetectionEval:
         if self.cohort_analysis:
             for sample_token in self.pred_boxes.boxes.keys():
                 for box in self.pred_boxes.boxes[sample_token]:
-                    label = trajectory(nusc, box)
+                    label = trajectory(nusc, box, self.forecast)
                     box.detection_name = label + "_" + box.detection_name
 
             for sample_token in self.gt_boxes.boxes.keys():
                 for box in self.gt_boxes.boxes[sample_token]:
-                    label = trajectory(nusc, box)
+                    label = trajectory(nusc, box, self.forecast)
                     box.detection_name = label + "_" + box.detection_name
 
         if self.static_only:
             for sample_token in self.pred_boxes.boxes.keys():
                 self.pred_boxes.boxes[sample_token] = [boxes for boxes in self.pred_boxes.boxes[sample_token] if np.linalg.norm(boxes.velocity) < 0.05]
-
-        if self.reverse:
-            for sample_token in self.pred_boxes.boxes.keys():
-                self.pred_boxes.boxes[sample_token] = [reverse_boxes(self.nusc, boxes) for boxes in self.pred_boxes.boxes[sample_token]]
 
         # Add center distances.
         self.pred_boxes = add_center_dist(nusc, self.pred_boxes)
@@ -289,6 +225,8 @@ class DetectionEval:
             for dist_th in self.cfg.dist_ths:
                 metric_data = metric_data_list[(class_name, dist_th)]
                 ap = calc_ap(deepcopy(metric_data), self.cfg.min_recall, self.cfg.min_precision)
+                ap_mr = calc_ap_mr(deepcopy(metric_data), self.cfg.min_recall, self.cfg.min_precision)
+
                 ar = calc_ar(deepcopy(metric_data))
 
                 fap = calc_fap(deepcopy(metric_data), self.cfg.min_recall, self.cfg.min_precision)
@@ -298,6 +236,7 @@ class DetectionEval:
                 aar = calc_aar(deepcopy(metric_data))
 
                 metrics.add_label_ap(class_name, dist_th, ap)
+                metrics.add_label_ap_mr(class_name, dist_th, ap_mr)
                 metrics.add_label_ar(class_name, dist_th, ar)
                 metrics.add_label_fap(class_name, dist_th, fap)
                 metrics.add_label_far(class_name, dist_th, far)
@@ -388,13 +327,17 @@ class DetectionEval:
             print('Saving metrics to: %s' % self.output_dir)
         metrics_summary = metrics.serialize()
         metrics_summary['meta'] = self.meta.copy()
+        
         with open(os.path.join(self.output_dir, 'metrics_summary.json'), 'w') as f:
             json.dump(metrics_summary, f, indent=2)
         with open(os.path.join(self.output_dir, 'metrics_details.json'), 'w') as f:
             json.dump(metric_data_list.serialize(), f, indent=2)
 
+
         # Print high-level metrics.
         print('mAP: %.4f' % (metrics_summary['mean_ap']))
+        print('mAP_MR: %.4f' % (metrics_summary['mean_ap_mr']))
+
         print('mAR: %.4f' % (metrics_summary['mean_ar']))
 
         print('mFAP: %.4f' % (metrics_summary['mean_fap']))
@@ -424,8 +367,9 @@ class DetectionEval:
         # Print per-class metrics.
         print()
         print('Per-class results:')
-        print('Object Class\tAP\tAR\tFAP\tFAR\tAAP\tAAR\tATE\tASE\tAOE\tAVE\tAAE\tADE\tFDE\tMR')
+        print('Object Class\tAP\tAP_MR\tAR\tFAP\tFAR\tAAP\tAAR\tATE\tASE\tAOE\tAVE\tAAE\tADE\tFDE\tMR')
         class_aps = metrics_summary['mean_dist_aps']
+        class_aps_mr = metrics_summary['mean_dist_aps_mr']
         class_ars = metrics_summary['mean_dist_ars']
 
         class_faps = metrics_summary['mean_dist_faps']
@@ -436,8 +380,8 @@ class DetectionEval:
 
         class_tps = metrics_summary['label_tp_errors']
         for class_name in class_aps.keys():
-            print('%s\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f'
-                  % (class_name, class_aps[class_name], class_ars[class_name], class_faps[class_name], class_fars[class_name], class_aaps[class_name], class_aars[class_name],
+            print('%s\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f'
+                  % (class_name, class_aps[class_name], class_aps_mr[class_name], class_ars[class_name], class_faps[class_name], class_fars[class_name], class_aaps[class_name], class_aars[class_name],
                      class_tps[class_name]['trans_err'],
                      class_tps[class_name]['scale_err'],
                      class_tps[class_name]['orient_err'],

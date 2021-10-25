@@ -128,63 +128,11 @@ def quaternion_yaw(q: Quaternion) -> float:
 
     return yaw
 
-def window(iterable, size):
-    iters = tee(iterable, size)
-    for i in range(1, size):
-        for each in iters[i:]:
-            next(each, None)
 
-    return zip(*iters)
-
-def get_time(nusc, src_token, dst_token):
-    time_last = 1e-6 * nusc.get('sample', src_token)["timestamp"]
-    time_first = 1e-6 * nusc.get('sample', dst_token)["timestamp"]
-    time_diff = time_first - time_last
-
-    return time_diff 
-
-def forecast_boxes(nusc, boxes):
-    forecast_tokens = boxes.forecast_sample_tokens
-    forecast_timediff = [get_time(nusc, token[0], token[1]) for token in window(forecast_tokens, 2)]
-    forecast_rotation = boxes.forecast_rotation
-    forecast_velocity = boxes.forecast_velocity
-    forecast_boxes = [boxes]
-
-    for i in range(len(forecast_tokens) - 1):
-        new_box = deepcopy(forecast_boxes[-1])
-        new_box.translation = new_box.translation + forecast_timediff[i] * np.append(forecast_velocity[i], 0)
-        new_box.rotation = forecast_rotation[i]
-        forecast_boxes.append(new_box)
-
-    return forecast_boxes
-
-def reverse_boxes(nusc, boxes):
-    reverse_tokens = boxes.reverse_sample_tokens
-    reverse_timediff = [get_time(nusc, token[0], token[1]) for token in window(reverse_tokens, 2)]
-    reverse_rotation = boxes.forecast_rrotation
-    reverse_velocity = boxes.forecast_rvelocity
-    reverse_boxes = [boxes]
-
-    for i in range(len(reverse_tokens) - 1):
-        new_box = deepcopy(reverse_boxes[-1])
-        new_box.translation = new_box.translation - reverse_timediff[i] * np.append(reverse_velocity[i], 0)
-        new_box.rotation = reverse_rotation[i]
-        reverse_boxes.append(new_box)
-
-    return reverse_boxes
-
-def ade(nusc, gt_box: DetectionBox, pred_box: DetectionBox, reverse=False) -> float:
-    #try:
-    if not reverse: 
-        gt_forecast = forecast_boxes(nusc, gt_box)
-        pred_forecast = forecast_boxes(nusc, pred_box)
-    else:
-        gt_forecast = reverse_boxes(nusc, gt_box)
-        pred_forecast = reverse_boxes(nusc, pred_box)  
-
+def ade(nusc, gt_box: DetectionBox, pred_box: DetectionBox) -> float:
     error = []
 
-    for gt, pred in zip(gt_forecast, pred_forecast):
+    for gt, pred in zip(gt_box.forecast_boxes, pred_box.forecast_boxes):
         dist = center_distance(gt, pred)
         error.append(dist)
 
@@ -192,24 +140,17 @@ def ade(nusc, gt_box: DetectionBox, pred_box: DetectionBox, reverse=False) -> fl
     #except:
     #    return np.nan
 
-def fde(nusc, gt_box: DetectionBox, pred_box: DetectionBox, reverse=False) -> float:
+def fde(nusc, gt_box: DetectionBox, pred_box: DetectionBox) -> float:
     #try:
-    if not reverse: 
-        gt_forecast = forecast_boxes(nusc, gt_box)[-1]
-        pred_forecast = forecast_boxes(nusc, pred_box)[-1]
-    else:
-        gt_forecast = reverse_boxes(nusc, gt_box)[-1]
-        pred_forecast = reverse_boxes(nusc, pred_box)[-1]  
-
-    dist = center_distance(gt_forecast, pred_forecast)
+    dist = center_distance(gt_box.forecast_boxes[-1], pred_box.forecast_boxes[-1])
     
     return dist
     #except:
     #    return np.nan
 
-def miss_rate(nusc, gt_box: DetectionBox, pred_box: DetectionBox, thresh : float = 2.0, reverse=False) -> float:
+def miss_rate(nusc, gt_box: DetectionBox, pred_box: DetectionBox, thresh : float = 2.0) -> float:
     #try:
-    dist = fde(nusc, gt_box, pred_box, reverse=reverse)
+    dist = fde(nusc, gt_box, pred_box)
 
     return 1 if dist > thresh else 0
     #except:
@@ -234,13 +175,10 @@ def boxes_to_sensor(boxes: List[EvalBox], pose_record: Dict, cs_record: Dict):
             score = box.tracking_score
 
         box = Box(center=box.translation, 
-                  rcenter=box.translation, 
                   size=box.size, 
                   orientation=Quaternion(box.rotation), 
-                  rorientation=Quaternion(box.rrotation),
                   name=name,
                   velocity=(*box.velocity, 0),
-                  rvelocity=(*box.rvelocity, 0),
                   score=score)
 
         # Move box to ego vehicle coord system.
@@ -250,14 +188,6 @@ def boxes_to_sensor(boxes: List[EvalBox], pose_record: Dict, cs_record: Dict):
         #  Move box to sensor coord system.
         box.translate(-np.array(cs_record['translation']))
         box.rotate(Quaternion(cs_record['rotation']).inverse)
-
-        # Move box to ego vehicle coord system.
-        box.rtranslate(-np.array(pose_record['translation']))
-        box.rrotate(Quaternion(pose_record['rotation']).inverse)
-
-        #  Move box to sensor coord system.
-        box.rtranslate(-np.array(cs_record['translation']))
-        box.rrotate(Quaternion(cs_record['rotation']).inverse)
 
         boxes_out.append(box)
 

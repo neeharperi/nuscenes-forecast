@@ -269,8 +269,8 @@ class NuScenes:
         """
         record = self.get('sample_annotation', sample_annotation_token)
         velocity = self.box_velocity(record['token'])
-        return Box(center=record['translation'], rcenter=record['translation'], size=record['size'], orientation=Quaternion(record['rotation']), rorientation=Quaternion(record['rotation']),
-                   name=record['category_name'], token=record['token'], rtoken=record['token'], velocity=velocity, rvelocity=velocity)
+        return Box(center=record['translation'], size=record['size'], orientation=Quaternion(record['rotation']),
+                   name=record['category_name'], token=record['token'], velocity=velocity)
 
     def get_boxes(self, sample_data_token: str) -> List[Box]:
         """
@@ -322,8 +322,8 @@ class NuScenes:
                                                 amount=(t - t0) / (t1 - t0))
 
                     velocity = self.box_velocity(curr_ann_rec['token'])
-                    box = Box(center = center, rcenter = rcenter, size = curr_ann_rec['size'], orientation = rotation, rorientation = rotation, name=curr_ann_rec['category_name'],
-                              token=curr_ann_rec['token'], rtoken=curr_ann_rec['token'], velocity=velocity, rvelocity=velocity)
+                    box = Box(center = center, size = curr_ann_rec['size'], orientation = rotation, name=curr_ann_rec['category_name'],
+                              token=curr_ann_rec['token'],  velocity=velocity)
                 else:
                     # If not, simply grab the current annotation.
                     box = self.get_box(curr_ann_rec['token'])
