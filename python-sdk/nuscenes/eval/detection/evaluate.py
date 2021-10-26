@@ -161,8 +161,7 @@ class DetectionEval:
 
             for box in self.gt_boxes.boxes[sample_token]:
                 box.forecast_boxes = [serialize_box(box, coordinate_transform=True) for box in box.forecast_boxes]
-
-
+                
         assert set(self.pred_boxes.sample_tokens) == set(self.gt_boxes.sample_tokens), \
             "Samples in split doesn't match samples in predictions."
         

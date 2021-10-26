@@ -1,37 +1,13 @@
 {
   "class_range": {
     "static_car": 50,
-    "static_truck": 50,
-    "static_bus": 50,
-    "static_trailer": 50,
-    "static_construction_vehicle": 50,
     "static_pedestrian": 40,
-    "static_motorcycle": 40,
-    "static_bicycle": 40,
-    "static_traffic_cone": 30,
-    "static_barrier": 30,
 
     "linear_car": 50,
-    "linear_truck": 50,
-    "linear_bus": 50,
-    "linear_trailer": 50,
-    "linear_construction_vehicle": 50,
     "linear_pedestrian": 40,
-    "linear_motorcycle": 40,
-    "linear_bicycle": 40,
-    "linear_traffic_cone": 30,
-    "linear_barrier": 30,
 
     "nonlinear_car": 50,
-    "nonlinear_truck": 50,
-    "nonlinear_bus": 50,
-    "nonlinear_trailer": 50,
-    "nonlinear_construction_vehicle": 50,
-    "nonlinear_pedestrian": 40,
-    "nonlinear_motorcycle": 40,
-    "nonlinear_bicycle": 40,
-    "nonlinear_traffic_cone": 30,
-    "nonlinear_barrier": 30
+    "nonlinear_pedestrian": 40
   },
   "dist_fcn": "center_distance",
   "dist_ths": [0.5, 1.0, 2.0, 4.0],

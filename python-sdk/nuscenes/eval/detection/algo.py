@@ -9,6 +9,7 @@ import numpy as np
 from nuscenes.eval.common.data_classes import EvalBoxes
 from nuscenes.eval.common.utils import center_distance, scale_iou, yaw_diff, velocity_l2, attr_acc, cummean, ade, fde, miss_rate
 from nuscenes.eval.detection.data_classes import DetectionMetricData
+import copy
 import pdb
 
 def accumulate(nusc, 
@@ -58,9 +59,17 @@ def accumulate(nusc,
     # Do the actual matching.
     tp = []  # Accumulator of true positives.
     fp = []  # Accumulator of false positives.
+
+    ftp = []
+    ffp = []
+
     tp_mr = []  # Accumulator of true positives.
     fp_mr = []  # Accumulator of false positives.
     conf = []  # Accumulator of confidences.
+
+    for i in range(len(pred_boxes_list[0].forecast_boxes)):
+        ftp.append([])
+        ffp.append([])
 
     # match_data holds the extra metrics we calculate for each match.
     match_data = {'trans_err': [],
@@ -80,93 +89,18 @@ def accumulate(nusc,
     # Match and accumulate match data.
     # ---------------------------------------------
 
-    taken = set()  # Initially no gt bounding box is matched.
-    for ind in sortind:
-        pred_box = pred_boxes_list[ind]
-        min_dist = np.inf
-        match_gt_idx = None
-
-        for gt_idx, gt_box in enumerate(gt_boxes[pred_box.sample_token]):
-
-            # Find closest match among ground truth boxes
-            if gt_box.detection_name == class_name and not (pred_box.sample_token, gt_idx) in taken:
-                this_distance = dist_fcn(gt_box, pred_box)
-                if this_distance < min_dist:
-                    min_dist = this_distance
-                    match_gt_idx = gt_idx
-
-        # If the closest match is close enough according to threshold we have a match!
-        is_match = min_dist < dist_th
-
-        if is_match:
-            taken.add((pred_box.sample_token, match_gt_idx))
-            #  Update tp, fp and confs.
-            tp.append(1)
-            fp.append(0)
-            conf.append(pred_box.detection_score) 
-
-            # Since it is a match, update match data also.
-            gt_box_match = gt_boxes[pred_box.sample_token][match_gt_idx]
-
-            mr = miss_rate(nusc, gt_box_match, pred_box)
-
-            if mr == 0:
-                tp_mr.append(1)
-                fp_mr.append(0) 
-            else:
-                tp_mr.append(0)
-                fp_mr.append(1)  
-
-            match_data['trans_err'].append(center_distance(gt_box_match, pred_box))
-            match_data['vel_err'].append(velocity_l2(gt_box_match, pred_box))
-            match_data['scale_err'].append(1 - scale_iou(gt_box_match, pred_box))
-
-            # Barrier orientation is only determined up to 180 degree. (For cones orientation is discarded later)
-            period = np.pi if class_name == 'barrier' else 2 * np.pi
-            match_data['orient_err'].append(yaw_diff(gt_box_match, pred_box, period=period))
-            match_data['attr_err'].append(1 - attr_acc(gt_box_match, pred_box))
-            
-            match_data['avg_disp_err'].append(ade(nusc, gt_box_match, pred_box))
-            match_data['final_disp_err'].append(fde(nusc, gt_box_match, pred_box))
-            match_data['miss_rate'].append(miss_rate(nusc, gt_box_match, pred_box))
-
-            #match_data['reverse_avg_disp_err'].append(ade(nusc, gt_box_match, pred_box, reverse=True))
-            #match_data['reverse_final_disp_err'].append(fde(nusc, gt_box_match, pred_box, reverse=True))
-            #match_data['reverse_miss_rate'].append(miss_rate(nusc, gt_box_match, pred_box, reverse=True))
-
-            match_data['conf'].append(pred_box.detection_score)
-
-        else:
-            # No match. Mark this as a false positive.
-            tp.append(0)
-            fp.append(1)
-            tp_mr.append(0)
-            fp_mr.append(1)
-            conf.append(pred_box.detection_score)
-
-    # ---------------------------------------------
-    # Match and accumulate forecasted match data.
-    # ---------------------------------------------
-    ftp = []   
-    ffp = []
-
     for i in range(len(pred_boxes_list[0].forecast_boxes)):
-        itp = []
-        ifp = []
         taken = set()  # Initially no gt bounding box is matched.
         for ind in sortind:
-            pred_box = pred_boxes_list[ind]
-            pred_box = pred_box.forecast_boxes[i]
+            pred_box = pred_boxes_list[ind].forecast_boxes[i]
             min_dist = np.inf
             match_gt_idx = None
 
-            for gt_idx, gt_box in enumerate(gt_boxes[pred_box.sample_token]):
-                
+            for gt_idx, gt_box in enumerate(gt_boxes[pred_boxes_list[ind].sample_token]):
+
                 # Find closest match among ground truth boxes
-                if gt_box.detection_name == class_name and not (pred_box.sample_token, gt_idx) in taken:
-                    gt_box = gt_box.forecast_boxes[i]
-                    min_dist = np.inf
-                    this_distance = dist_fcn(gt_box, pred_box)
+                if gt_box.detection_name == class_name and not (pred_boxes_list[ind].sample_token, gt_idx) in taken:
+                    this_distance = dist_fcn(gt_box.forecast_boxes[i], pred_box)
                     if this_distance < min_dist:
                         min_dist = this_distance
                         match_gt_idx = gt_idx
@@ -175,21 +109,58 @@ def accumulate(nusc,
             is_match = min_dist < dist_th
 
             if is_match:
-                taken.add((pred_box.sample_token, match_gt_idx))
+                taken.add((pred_boxes_list[ind].sample_token, match_gt_idx))
                 #  Update tp, fp and confs.
-                itp.append(1)
-                ifp.append(0)
+                ftp[i].append(1)
+                ffp[i].append(0)
 
-                # Since it is a match, update match data also.
-                gt_box_match = gt_boxes[pred_box.sample_token][match_gt_idx]
+                if i == 0:
+                    tp.append(1)
+                    fp.append(0)
+                    conf.append(pred_boxes_list[ind].detection_score) 
+
+                    # Since it is a match, update match data also.
+                    gt_box_match = gt_boxes[pred_boxes_list[ind].sample_token][match_gt_idx]
+
+                    mr = miss_rate(nusc, gt_box_match, pred_boxes_list[ind])
+
+                    if mr == 0:
+                        tp_mr.append(1)
+                        fp_mr.append(0) 
+                    else:
+                        tp_mr.append(0)
+                        fp_mr.append(1)  
+
+                    match_data['trans_err'].append(center_distance(gt_box_match, pred_boxes_list[ind]))
+                    match_data['vel_err'].append(velocity_l2(gt_box_match, pred_boxes_list[ind]))
+                    match_data['scale_err'].append(1 - scale_iou(gt_box_match, pred_boxes_list[ind]))
+
+                    # Barrier orientation is only determined up to 180 degree. (For cones orientation is discarded later)
+                    period = np.pi if class_name == 'barrier' else 2 * np.pi
+                    match_data['orient_err'].append(yaw_diff(gt_box_match, pred_boxes_list[ind], period=period))
+                    match_data['attr_err'].append(1 - attr_acc(gt_box_match, pred_boxes_list[ind]))
+                    
+                    match_data['avg_disp_err'].append(ade(nusc, gt_box_match, pred_boxes_list[ind]))
+                    match_data['final_disp_err'].append(fde(nusc, gt_box_match, pred_boxes_list[ind]))
+                    match_data['miss_rate'].append(miss_rate(nusc, gt_box_match, pred_boxes_list[ind]))
+
+                    #match_data['reverse_avg_disp_err'].append(ade(nusc, gt_box_match, pred_box, reverse=True))
+                    #match_data['reverse_final_disp_err'].append(fde(nusc, gt_box_match, pred_box, reverse=True))
+                    #match_data['reverse_miss_rate'].append(miss_rate(nusc, gt_box_match, pred_box, reverse=True))
+
+                    match_data['conf'].append(pred_boxes_list[ind].detection_score)
 
             else:
                 # No match. Mark this as a false positive.
-                itp.append(0)
-                ifp.append(1)
-        
-        ftp.append(itp)
-        ffp.append(ifp)
+                ftp[i].append(0)
+                ffp[i].append(1)   
+
+                if i == 0:
+                    tp.append(0)
+                    fp.append(1)
+                    tp_mr.append(0)
+                    fp_mr.append(1)
+                    conf.append(pred_boxes_list[ind].detection_score)
 
     # Check if we have any matches. If not, just return a "no predictions" array.
     if len(match_data['trans_err']) == 0:
@@ -221,7 +192,7 @@ def accumulate(nusc,
 
     fprec = [ftp[i] / (ffp[i] + ftp[i]) for i in range(len(ftp))]
     frec = [ftp[i] / float(npos) for i in range(len(ftp))]
-
+    
     rec_interp = np.linspace(0, 1, DetectionMetricData.nelem)  # 101 steps, from 0% to 100% recall.
     prec = np.interp(rec_interp, rec, prec, right=0)
     prec_mr = np.interp(rec_interp, rec_mr, prec_mr, right=0)
