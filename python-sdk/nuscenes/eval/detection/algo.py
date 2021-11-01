@@ -68,7 +68,7 @@ def accumulate(nusc,
     fp_mr = []  # Accumulator of false positives.
     conf = []  # Accumulator of confidences.
 
-    for i in range(forecast)):
+    for i in range(forecast):
         ftp.append([])
         ffp.append([])
 
