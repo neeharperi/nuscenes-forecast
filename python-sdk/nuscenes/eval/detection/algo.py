@@ -18,6 +18,7 @@ def accumulate(nusc,
                class_name: str,
                dist_fcn: Callable,
                dist_th: float,
+               forecast: int,
                verbose: bool = False) -> DetectionMetricData:
     """
     Average Precision over predefined different recall thresholds for a single distance threshold.
@@ -47,7 +48,7 @@ def accumulate(nusc,
     pred_confs = [box.detection_score for box in pred_boxes_list]
 
     if npos == 0:
-        return DetectionMetricData.no_predictions(timesteps=len(pred_boxes_list[0].forecast_boxes))
+        return DetectionMetricData.no_predictions(timesteps=forecast)
 
     if verbose:
         print("Found {} PRED of class {} out of {} total across {} samples.".
@@ -67,7 +68,7 @@ def accumulate(nusc,
     fp_mr = []  # Accumulator of false positives.
     conf = []  # Accumulator of confidences.
 
-    for i in range(len(pred_boxes_list[0].forecast_boxes)):
+    for i in range(forecast)):
         ftp.append([])
         ffp.append([])
 
@@ -89,7 +90,7 @@ def accumulate(nusc,
     # Match and accumulate match data.
     # ---------------------------------------------
 
-    for i in range(len(pred_boxes_list[0].forecast_boxes)):
+    for i in range(forecast):
         taken = set()  # Initially no gt bounding box is matched.
         for ind in sortind:
             pred_box = pred_boxes_list[ind].forecast_boxes[i]
@@ -164,7 +165,7 @@ def accumulate(nusc,
 
     # Check if we have any matches. If not, just return a "no predictions" array.
     if len(match_data['trans_err']) == 0:
-        return DetectionMetricData.no_predictions(timesteps=len(pred_boxes_list[0].forecast_boxes))
+        return DetectionMetricData.no_predictions(timesteps=forecast)
 
     # ---------------------------------------------
     # Calculate and interpolate precision and recall

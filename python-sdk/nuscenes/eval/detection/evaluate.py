@@ -210,7 +210,7 @@ class DetectionEval:
         metric_data_list = DetectionMetricDataList()
         for class_name in tqdm(self.cfg.class_names):
             for dist_th in self.cfg.dist_ths:
-                md = accumulate(self.nusc, self.gt_boxes, self.pred_boxes, class_name, self.cfg.dist_fcn_callable, dist_th)
+                md = accumulate(self.nusc, self.gt_boxes, self.pred_boxes, class_name, self.cfg.dist_fcn_callable, dist_th, self.forecast)
                 metric_data_list.set(class_name, dist_th, md)
 
         # -----------------------------------
