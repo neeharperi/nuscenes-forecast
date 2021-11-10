@@ -6,9 +6,10 @@ from typing import Callable
 
 import numpy as np
 
-from nuscenes.eval.common.data_classes import EvalBoxes
+from nuscenes.eval.common.data_classes import EvalBoxes, EvalBox
 from nuscenes.eval.common.utils import center_distance, scale_iou, yaw_diff, velocity_l2, attr_acc, cummean, ade, fde, miss_rate
-from nuscenes.eval.detection.data_classes import DetectionMetricData
+from nuscenes.eval.detection.data_classes import DetectionConfig, DetectionMetrics, DetectionBox, DetectionMetricDataList, DetectionMetricData
+
 import copy
 import pdb
 
@@ -19,6 +20,7 @@ def accumulate(nusc,
                dist_fcn: Callable,
                dist_th: float,
                forecast: int,
+               cohort_analysis: bool = False,
                verbose: bool = False) -> DetectionMetricData:
     """
     Average Precision over predefined different recall thresholds for a single distance threshold.
@@ -44,7 +46,17 @@ def accumulate(nusc,
     # For missing classes in the GT, return a data structure corresponding to no predictions.
 
     # Organize the predictions in a single list.
-    pred_boxes_list = [box for box in pred_boxes.all if box.detection_name == class_name]
+    if cohort_analysis:
+        if "car" in class_name:
+            name = "car"
+        else:
+            name = "pedestrian"    
+
+        pred_boxes_list = [box for box in pred_boxes.all if name in box.detection_name]
+
+    else:
+        pred_boxes_list = [box for box in pred_boxes.all if box.detection_name == class_name]
+    
     pred_confs = [box.detection_score for box in pred_boxes_list]
 
     if npos == 0:
@@ -152,6 +164,10 @@ def accumulate(nusc,
                     match_data['conf'].append(pred_boxes_list[ind].detection_score)
 
             else:
+                if cohort_analysis:
+                    if pred_boxes_list[ind].detection_name != class_name:
+                        continue 
+
                 # No match. Mark this as a false positive.
                 ftp[i].append(0)
                 ffp[i].append(1)   
@@ -199,7 +215,7 @@ def accumulate(nusc,
     prec_mr = np.interp(rec_interp, rec_mr, prec_mr, right=0)
     fprec = [np.interp(rec_interp, frec[i], fprec[i], right=0) for i in range(len(fprec))]
     conf = np.interp(rec_interp, rec, conf, right=0)
-
+        
     rec_val = float(true_pos) / npos
     rec_fval = [float(true_fpos[i]) / npos for i in range(len(true_fpos))]
     rec = rec_interp
@@ -324,9 +340,11 @@ def calc_tp(md: DetectionMetricData, min_recall: float, metric_name: str, pct=1)
 
     first_ind = round(100 * min_recall) + 1  # +1 to exclude the error at min recall.
     last_ind = md.max_recall_ind  # First instance of confidence = 0 is index of max achieved recall.
-
-    last_ind = int(pct * last_ind)
     if last_ind < first_ind:
         return 1.0  # Assign 1 here. If this happens for all classes, the score for that TP metric will be 0.
     else:
-        return float(np.mean(getattr(md, metric_name)[first_ind: last_ind + 1]))  # +1 to include error at max recall.
+        if pct == -1:
+            return float(np.mean(getattr(md, metric_name)[first_ind: last_ind + 1]))  # +1 to include error at max recall.
+        else:
+            pct_ind = np.where(getattr(md, "recall") == pct)
+            return float(getattr(md, metric_name)[pct_ind])

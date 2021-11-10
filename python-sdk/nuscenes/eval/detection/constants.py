@@ -12,7 +12,8 @@ def getDetectionNames(cohort_analysis=False):
         #'linear_car', 'linear_truck', 'linear_bus', 'linear_trailer', 'linear_construction_vehicle', 'linear_pedestrian', 'linear_motorcycle', 'linear_bicycle', 'linear_traffic_cone', 'linear_barrier',
         #'nonlinear_car', 'nonlinear_truck', 'nonlinear_bus', 'nonlinear_trailer', 'nonlinear_construction_vehicle', 'nonlinear_pedestrian', 'nonlinear_motorcycle', 'nonlinear_bicycle', 'nonlinear_traffic_cone', 'nonlinear_barrier']
 
-        DETECTION_NAMES = ['static_car', 'static_pedestrian', 'linear_car', 'linear_pedestrian', 'nonlinear_car', 'nonlinear_pedestrian']
+        #DETECTION_NAMES = ['static_car', 'static_pedestrian', 'linear_car', 'linear_pedestrian', 'nonlinear_car', 'nonlinear_pedestrian']
+        DETECTION_NAMES = ['static_car', 'static_pedestrian', 'moving_car', 'moving_pedestrian']
 
 
     return DETECTION_NAMES
@@ -38,6 +39,17 @@ PRETTY_DETECTION_NAMES = {'car': 'Car',
                           'static_bicycle': 'Static Bicycle',
                           'static_traffic_cone': 'Static Traffic Cone',
                           'static_barrier': 'Static Barrier',
+
+                          'moving_car': 'Moving Car',
+                          'moving_truck': 'Moving Truck',
+                          'moving_bus': 'Moving Bus',
+                          'moving_trailer': 'Moving Trailer',
+                          'moving_construction_vehicle': 'Moving Constr. Veh.',
+                          'moving_pedestrian': 'Moving Pedestrian',
+                          'moving_motorcycle': 'Moving Motorcycle',
+                          'moving_bicycle': 'Moving Bicycle',
+                          'moving_traffic_cone': 'Moving Traffic Cone',
+                          'moving_barrier': 'Moving Barrier',
 
                           'linear_car': 'Linear Car',
                           'linear_truck': 'Linear Truck',
@@ -83,6 +95,17 @@ DETECTION_COLORS = {'car': 'C0',
                     'static_bicycle': 'C7',
                     'static_traffic_cone': 'C8',
                     'static_barrier': 'C9',
+
+                    'moving_car': 'C0',
+                    'moving_truck': 'C1',
+                    'moving_bus': 'C2',
+                    'moving_trailer': 'C3',
+                    'moving_construction_vehicle': 'C4',
+                    'moving_pedestrian': 'C5',
+                    'moving_motorcycle': 'C6',
+                    'moving_bicycle': 'C7',
+                    'moving_traffic_cone': 'C8',
+                    'moving_barrier': 'C9',
 
                     'linear_car': 'C0',
                     'linear_truck': 'C1',

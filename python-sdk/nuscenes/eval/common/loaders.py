@@ -30,7 +30,7 @@ def forecast_annotation(nusc, sample_annotation, sample_token, name, attr, times
     pose_record = nusc.get("ego_pose", sd_record["ego_pose_token"])
 
 
-    for i in range(timesteps + 1):
+    for i in range(timesteps):
         curr_token = nusc.sample[sample_tokens.index(sample_annotation["sample_token"])]["data"]["LIDAR_TOP"]
         curr_sd_record = nusc.get("sample_data", curr_token)
         curr_cs_record = nusc.get("calibrated_sensor", curr_sd_record["calibrated_sensor_token"])
@@ -58,7 +58,7 @@ def forecast_annotation(nusc, sample_annotation, sample_token, name, attr, times
         box.rotate(Quaternion(pose_record["rotation"]))
         box.translate(np.array(pose_record["translation"]))
         
-        forecast_box.append({'sample_token' : sample_token,
+        forecast_box.append({'sample_token' : sample_annotation["sample_token"],
                                     'translation' : box.center,
                                     'size' : box.wlh,
                                     'rotation' : box.orientation.elements,
@@ -284,8 +284,9 @@ def filter_eval_boxes(nusc: NuScenes,
 
         # Filter on distance first.
         total += len(eval_boxes[sample_token])
-        eval_boxes.boxes[sample_token] = [box for box in eval_boxes[sample_token] if
-                                          box.ego_dist < max_dist[box.__getattribute__(class_field)]]
+        
+        eval_boxes.boxes[sample_token] = [box for box in eval_boxes[sample_token] if box.ego_dist < max_dist[box.__getattribute__(class_field)]]
+
         dist_filter += len(eval_boxes[sample_token])
 
         # Then remove boxes with zero points in them. Eval boxes have -1 points by default.

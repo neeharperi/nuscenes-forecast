@@ -3,12 +3,10 @@
     "static_car": 50,
     "static_pedestrian": 40,
 
-    "linear_car": 50,
-    "linear_pedestrian": 40,
-
-    "nonlinear_car": 50,
-    "nonlinear_pedestrian": 40
+    "moving_car": 50,
+    "moving_pedestrian": 40
   },
+  
   "dist_fcn": "center_distance",
   "dist_ths": [0.5, 1.0, 2.0, 4.0],
   "dist_th_tp": 2.0,

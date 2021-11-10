@@ -13,37 +13,18 @@ from collections import defaultdict
 
 from nuscenes import NuScenes
 from nuscenes.eval.common.config import config_factory
-from nuscenes.eval.common.data_classes import EvalBoxes
-from nuscenes.eval.common.data_classes import EvalBox
+from nuscenes.eval.common.data_classes import EvalBoxes, EvalBox
 from nuscenes.eval.common.loaders import load_prediction, load_gt, add_center_dist, filter_eval_boxes
 from nuscenes.eval.detection.algo import accumulate, calc_ap, calc_ap_mr, calc_ar, calc_tp, calc_fap, calc_far, calc_aap, calc_aar
 from nuscenes.eval.detection.constants import TP_METRICS
-from nuscenes.eval.detection.data_classes import DetectionConfig, DetectionMetrics, DetectionBox, \
-    DetectionMetricDataList
+from nuscenes.eval.detection.data_classes import DetectionConfig, DetectionMetrics, DetectionBox, DetectionMetricDataList, DetectionMetricData
 
 from copy import deepcopy
 from nuscenes.eval.detection.render import summary_plot, class_pr_curve, class_tp_curve, dist_pr_curve, visualize_sample
 from tqdm import tqdm 
-from itertools import tee 
 
 import pdb
-
-def window(iterable, size):
-    iters = tee(iterable, size)
-    for i in range(1, size):
-        for each in iters[i:]:
-            next(each, None)
-
-    return zip(*iters)
-
-
-def get_time(nusc, src_token, dst_token):
-    time_last = 1e-6 * nusc.get('sample', src_token)["timestamp"]
-    time_first = 1e-6 * nusc.get('sample', dst_token)["timestamp"]
-    time_diff = time_first - time_last
-
-    return time_diff 
-
+from itertools import tee 
 
 def center_distance(gt_box: EvalBox, pred_box: EvalBox) -> float:
     """
@@ -54,31 +35,17 @@ def center_distance(gt_box: EvalBox, pred_box: EvalBox) -> float:
     """
     return np.linalg.norm(np.array(pred_box.translation[:2]) - np.array(gt_box.translation[:2]))
 
-def displacement(nusc, box):
-    forecast = box.forecast_boxes
-    token = [box.sample_token for box in forecast]
-    time = [get_time(nusc, src, dst) for src, dst in window(token, 2)]
-
-    disp = np.zeros(2)
-    for t in time:
-        disp += t * np.array(box.velocity)
-
-    return disp
-
-def trajectory(nusc, box: DetectionBox, thresh : float = 0.5, timesteps=7) -> float:
+def trajectory(nusc, box: DetectionBox, timesteps=7) -> float:
     target = box.forecast_boxes[-1]
     static_forecast = box.forecast_boxes[0]
-    linear_forecast = box
-    linear_forecast.translation = box.translation + np.array(list(displacement(nusc, box)) + [0])
-
-    if center_distance(target, static_forecast) < thresh:
+    
+    if center_distance(target, static_forecast) < max(static_forecast.size[0], static_forecast.size[1]):
         return "static"
-    elif center_distance(target, linear_forecast) < thresh:
-        return "linear"
     else:
-        return "nonlinear"
+        return "moving"
 
-def serialize_box(box, coordinate_transform=False):
+
+def serialize_box(box):
     box = DetectionBox(sample_token=box["sample_token"],
                         translation=box["translation"],
                         size=box["size"],
@@ -160,7 +127,7 @@ class DetectionEval:
                 box.forecast_boxes = [serialize_box(box) for box in box.forecast_boxes]
 
             for box in self.gt_boxes.boxes[sample_token]:
-                box.forecast_boxes = [serialize_box(box, coordinate_transform=True) for box in box.forecast_boxes]
+                box.forecast_boxes = [serialize_box(box) for box in box.forecast_boxes]
                 
         assert set(self.pred_boxes.sample_tokens) == set(self.gt_boxes.sample_tokens), \
             "Samples in split doesn't match samples in predictions."
@@ -178,7 +145,15 @@ class DetectionEval:
 
         if self.static_only:
             for sample_token in self.pred_boxes.boxes.keys():
-                self.pred_boxes.boxes[sample_token] = [boxes for boxes in self.pred_boxes.boxes[sample_token] if np.linalg.norm(boxes.velocity) < 0.05]
+                reranked_boxes = []
+                for boxes in self.pred_boxes.boxes[sample_token]:
+                    if np.linalg.norm(boxes.velocity[:2]) < 0.2:
+                        boxes.detection_score = 0
+                    
+                    reranked_boxes.append(boxes.detection_score)
+
+                self.pred_boxes.boxes[sample_token] = reranked_boxes
+                
 
         # Add center distances.
         self.pred_boxes = add_center_dist(nusc, self.pred_boxes)
@@ -192,6 +167,73 @@ class DetectionEval:
             print('Filtering ground truth annotations')
         self.gt_boxes = filter_eval_boxes(nusc, self.gt_boxes, self.cfg.class_range, verbose=verbose)
         
+        valid_trajectories = {}
+        for sample_token in self.gt_boxes.boxes.keys():
+            for box in self.gt_boxes.boxes[sample_token]:
+                tokens = set([box.sample_token for box in box.forecast_boxes])
+                
+                if sample_token not in valid_trajectories:
+                    valid_trajectories[sample_token] = []
+
+                if len(tokens) < forecast:
+                    valid_trajectories[sample_token].append(True)
+                else:
+                    valid_trajectories[sample_token].append(False)
+        
+        pred_boxes, gt_boxes = {}, {}
+        for class_name in ["car", "pedestrian"]:
+            pred_boxes_list = [box for box in self.pred_boxes.all if box.detection_name == class_name]
+            pred_confs = [box.detection_score for box in pred_boxes_list]
+            sortind = [i for (v, i) in sorted((v, i) for (i, v) in enumerate(pred_confs))][::-1]
+
+            taken = set()  # Initially no gt bounding box is matched.
+
+            for ind in sortind:
+                pred_box = pred_boxes_list[ind]
+                min_dist = np.inf
+                match_gt_idx = None
+                match_is_valid = True
+
+                if pred_boxes_list[ind].sample_token not in pred_boxes:
+                    pred_boxes[pred_boxes_list[ind].sample_token] = []
+                
+                if pred_boxes_list[ind].sample_token not in gt_boxes:
+                    gt_boxes[pred_boxes_list[ind].sample_token] = []
+
+                for gt_idx, box in enumerate(zip(self.gt_boxes[pred_boxes_list[ind].sample_token], valid_trajectories[pred_boxes_list[ind].sample_token])):
+                    gt_box, is_valid = box
+
+                    # Find closest match among ground truth boxes
+                    if gt_box.detection_name == class_name and not (pred_boxes_list[ind].sample_token, gt_idx) in taken:
+                        this_distance = center_distance(gt_box, pred_box)
+                        if this_distance < min_dist:
+                            min_dist = this_distance
+                            match_gt_idx = gt_idx
+                            match_is_valid = is_valid
+
+                # If the closest match is close enough according to threshold we have a match!
+                is_match = min_dist < 4.0
+
+                if is_match and match_is_valid:
+                    taken.add((pred_boxes_list[ind].sample_token, match_gt_idx))
+                    pred_boxes[pred_boxes_list[ind].sample_token].append(pred_boxes_list[ind])
+                    gt_boxes[pred_boxes_list[ind].sample_token].append(self.gt_boxes[pred_boxes_list[ind].sample_token][match_gt_idx])
+
+                if is_match and not match_is_valid:
+                    taken.add((pred_boxes_list[ind].sample_token, match_gt_idx))
+                
+                if not is_match:
+                    pred_boxes[pred_boxes_list[ind].sample_token].append(pred_boxes_list[ind])
+
+            for sample_token in self.gt_boxes.sample_tokens:
+                for gt_idx, gt_box in enumerate(self.gt_boxes[sample_token]):
+                    if (sample_token, gt_idx) not in taken and self.gt_boxes[sample_token][gt_idx].detection_name == class_name:
+                        gt_boxes[sample_token].append(self.gt_boxes[sample_token][gt_idx])
+
+        for sample_token in gt_boxes.keys():
+            self.gt_boxes.boxes[sample_token] = gt_boxes[sample_token]
+            self.pred_boxes.boxes[sample_token] = pred_boxes[sample_token]
+
         self.sample_tokens = self.gt_boxes.sample_tokens
 
 
@@ -210,7 +252,7 @@ class DetectionEval:
         metric_data_list = DetectionMetricDataList()
         for class_name in tqdm(self.cfg.class_names):
             for dist_th in self.cfg.dist_ths:
-                md = accumulate(self.nusc, self.gt_boxes, self.pred_boxes, class_name, self.cfg.dist_fcn_callable, dist_th, self.forecast)
+                md = accumulate(self.nusc, self.gt_boxes, self.pred_boxes, class_name, self.cfg.dist_fcn_callable, dist_th, self.forecast, self.cohort_analysis)
                 metric_data_list.set(class_name, dist_th, md)
 
         # -----------------------------------
@@ -302,17 +344,17 @@ class DetectionEval:
             sample_tokens = sample_tokens[:plot_examples]
 
             # Visualize samples.
-            example_dir = os.path.join(self.output_dir, 'examples')
-            if not os.path.isdir(example_dir):
-                os.mkdir(example_dir)
-            for sample_token in sample_tokens:
-                visualize_sample(self.nusc,
-                                 sample_token,
-                                 self.gt_boxes if self.eval_set != 'test' else EvalBoxes(),
-                                 # Don't render test GT.
-                                 self.pred_boxes,
-                                 eval_range=max(self.cfg.class_range.values()),
-                                 savepath=os.path.join(example_dir, '{}.png'.format(sample_token)))
+            #example_dir = os.path.join(self.output_dir, 'examples')
+            #if not os.path.isdir(example_dir):
+            #    os.mkdir(example_dir)
+            #for sample_token in sample_tokens:
+            #    visualize_sample(self.nusc,
+            #                     sample_token,
+            #                     self.gt_boxes if self.eval_set != 'test' else EvalBoxes(),
+            #                     # Don't render test GT.
+            #                     self.pred_boxes,
+            #                     eval_range=max(self.cfg.class_range.values()),
+            #                     savepath=os.path.join(example_dir, '{}.png'.format(sample_token)))
 
         # Run evaluation.
         metrics, metric_data_list = self.evaluate()
