@@ -26,6 +26,32 @@ from tqdm import tqdm
 import pdb
 from itertools import tee 
 
+def box_center(boxes):
+    center_box = np.array([box.translation for box in boxes]) 
+    return center_box
+
+def box_scores(boxes):
+    box = np.array([box.detection_score for box in boxes]) 
+    return box
+
+def distance_matrix(A, B, squared=False):
+    M = A.shape[0]
+    N = B.shape[0]
+
+    assert A.shape[1] == B.shape[1], f"The number of components for vectors in A \
+        {A.shape[1]} does not match that of B {B.shape[1]}!"
+
+    A_dots = (A*A).sum(axis=1).reshape((M,1))*np.ones(shape=(1,N))
+    B_dots = (B*B).sum(axis=1)*np.ones(shape=(M,1))
+    D_squared =  A_dots + B_dots -2*A.dot(B.T)
+
+    if squared == False:
+        zero_mask = np.less(D_squared, 0.0)
+        D_squared[zero_mask] = 0.0
+        return np.sqrt(D_squared)
+
+    return D_squared
+
 def center_distance(gt_box: EvalBox, pred_box: EvalBox) -> float:
     """
     L2 distance between the box centers (xy only).
@@ -83,7 +109,8 @@ class DetectionEval:
                  forecast: int = 7,
                  tp_pct: float = 0.6,
                  static_only: bool = False,
-                 cohort_analysis: bool = False):
+                 cohort_analysis: bool = False,
+                 topK: int = 1):
         """
         Initialize a DetectionEval object.
         :param nusc: A NuScenes object.
@@ -103,7 +130,7 @@ class DetectionEval:
         self.tp_pct = tp_pct
         self.static_only = static_only
         self.cohort_analysis = cohort_analysis
-
+        self.topK = topK
         # Check result file exists.
         assert os.path.exists(result_path), 'Error: The result file does not exist!'
 
@@ -167,13 +194,14 @@ class DetectionEval:
             print('Filtering ground truth annotations')
         self.gt_boxes = filter_eval_boxes(nusc, self.gt_boxes, self.cfg.class_range, verbose=verbose)
         
+        #####################################################################################################
         valid_trajectories = {}
         for sample_token in self.gt_boxes.boxes.keys():
+            if sample_token not in valid_trajectories:
+                valid_trajectories[sample_token] = []
+
             for box in self.gt_boxes.boxes[sample_token]:
                 tokens = set([box.sample_token for box in box.forecast_boxes])
-                
-                if sample_token not in valid_trajectories:
-                    valid_trajectories[sample_token] = []
 
                 if len(tokens) < forecast:
                     valid_trajectories[sample_token].append(True)
@@ -233,6 +261,64 @@ class DetectionEval:
         for sample_token in gt_boxes.keys():
             self.gt_boxes.boxes[sample_token] = gt_boxes[sample_token]
             self.pred_boxes.boxes[sample_token] = pred_boxes[sample_token]
+
+        ########################################################################################################
+        topK_pred = {}
+        for class_name in ["car", "pedestrian"]:
+            for sample_token in gt_boxes.keys():
+                if sample_token not in topK_pred:
+                    topK_pred[sample_token] = []
+                    
+                pred_boxes = [box for box in self.pred_boxes.boxes[sample_token] if box.detection_name == class_name]
+                pred_center = box_center(pred_boxes)
+                pred_score = box_scores(pred_boxes)
+                dist_mat = distance_matrix(pred_center, pred_center)
+
+                for i in range(dist_mat.shape[0]):
+                    match = np.where(dist_mat[i] < 0.01)[0]
+                    
+                    if len(match) == 1:
+                        pred = np.array(pred_boxes)[match]
+                        topK_pred[sample_token] += list(pred)
+                        continue
+
+                    pred  = np.array(pred_boxes)[match]
+                    score = pred_score[match]
+                    idx = np.argsort(score)[:topK]
+
+                    if topK == 1:
+                        pred = pred[idx]
+                        topK_pred[sample_token] += list(pred)
+                        continue
+                    pdb.set_trace()
+                    pred = list(pred)
+                    pred_box = pred[0]
+                    min_dist = np.inf
+                    match_gt_idx = None
+
+                    for gt_idx, gt_box in enumerate(self.gt_boxes[sample_token]):
+                        if gt_box.detection_name != class_name:
+                            continue 
+
+                        this_distance = center_distance(gt_box, test_pred)
+                        if this_distance < min_dist:
+                            min_dist = this_distance
+                            match_gt_idx = gt_idx
+
+                    match_gt = self.gt_boxes[sample_token][match_gt_idx]
+                    min_dist = np.inf
+                    match_pred = None
+
+                    for pred_box in pred:
+                        fde = center_distance(gt_box.forecast_boxes[-1], pred_box.forecast_boxes[-1])
+                        if fde < min_dist:
+                            min_dist = fde
+                            match_pred = pred_box
+
+                    topK_pred[sample_token] += list(match_pred)
+        
+        for sample_token in gt_boxes.keys():
+            self.pred_boxes.boxes[sample_token] = topK_pred[sample_token]
 
         self.sample_tokens = self.gt_boxes.sample_tokens
 
