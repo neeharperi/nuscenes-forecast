@@ -20,6 +20,13 @@ from nuscenes.utils.splits import create_splits_scenes
 from itertools import tee
 import pdb
 
+def get_time(nusc, src_token, dst_token):
+    time_last = 1e-6 * nusc.get('sample', src_token)["timestamp"]
+    time_first = 1e-6 * nusc.get('sample', dst_token)["timestamp"]
+    time_diff = time_first - time_last
+
+    return time_diff 
+
 def forecast_annotation(nusc, sample_annotation, sample_token, name, attr, timesteps=7):
     forecast_box = []
     sample_tokens = [s["token"] for s in nusc.sample]
@@ -29,13 +36,15 @@ def forecast_annotation(nusc, sample_annotation, sample_token, name, attr, times
     cs_record = nusc.get("calibrated_sensor", sd_record["calibrated_sensor_token"])
     pose_record = nusc.get("ego_pose", sd_record["ego_pose_token"])
 
-
+    stale_trajectory = False
+    
     for i in range(timesteps):
         curr_token = nusc.sample[sample_tokens.index(sample_annotation["sample_token"])]["data"]["LIDAR_TOP"]
         curr_sd_record = nusc.get("sample_data", curr_token)
         curr_cs_record = nusc.get("calibrated_sensor", curr_sd_record["calibrated_sensor_token"])
         curr_pose_record = nusc.get("ego_pose", curr_sd_record["ego_pose_token"])
         
+
         box = Box(center = sample_annotation["translation"],
             size = sample_annotation["size"],
             orientation = Quaternion(sample_annotation["rotation"]),
@@ -43,6 +52,16 @@ def forecast_annotation(nusc, sample_annotation, sample_token, name, attr, times
             name = sample_annotation["category_name"],
             token = sample_annotation["token"])
         
+        if stale_trajectory:
+            prev_token = nusc.get("sample_annotation", sample_annotation["prev"])["sample_token"]
+            curr_token = sample_annotation["sample_token"]
+            if prev_token == "":
+                time = 0.5
+            else:
+                time = get_time(nusc, prev_token, curr_token)
+            
+            box.center = box.center + time * box.velocity
+
         box.translate(-np.array(pose_record["translation"]))
         box.rotate(Quaternion(pose_record["rotation"]).inverse)
 
@@ -72,6 +91,7 @@ def forecast_annotation(nusc, sample_annotation, sample_token, name, attr, times
         next_token = sample_annotation["next"]
 
         if next_token != "":
+            stale_trajectory = True
             sample_annotation = nusc.get("sample_annotation", next_token)
 
     return forecast_box

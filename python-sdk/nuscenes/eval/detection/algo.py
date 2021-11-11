@@ -135,7 +135,7 @@ def accumulate(nusc,
                     # Since it is a match, update match data also.
                     gt_box_match = gt_boxes[pred_boxes_list[ind].sample_token][match_gt_idx]
 
-                    mr = miss_rate(nusc, gt_box_match, pred_boxes_list[ind])
+                    mr = miss_rate(nusc, gt_box_match, pred_boxes_list[ind], thresh=dist_th)
 
                     if mr == 0:
                         tp_mr.append(1)
@@ -335,7 +335,7 @@ def calc_aar(md: DetectionMetricData) -> float:
     
     return np.mean(ar)
 
-def calc_tp(md: DetectionMetricData, min_recall: float, metric_name: str, pct=1) -> float:
+def calc_tp(md: DetectionMetricData, min_recall: float, metric_name: str, pct=-1) -> float:
     """ Calculates true positive errors. """
 
     first_ind = round(100 * min_recall) + 1  # +1 to exclude the error at min recall.
