@@ -202,58 +202,47 @@ class DetectionEval:
                     pred_boxes_topK[sample_token] = []
 
                 pred_boxes = [box for box in self.pred_boxes.boxes[sample_token] if class_name in box.detection_name]
-                pred_center = box_center(pred_boxes)
+                groups = set([box.forecast_id for box in pred_boxes])
 
-                if len(pred_center) == 0:
-                    continue 
+                for group in groups:
+                    boxes = [box for box in pred_boxes if box.forecast_id == group]
+                    scores = box_scores(boxes)
+                    boxes = [b for _, b in sorted(zip(scores, boxes))][:topK]
 
-                taken = set()
-                pred_score = box_scores(pred_boxes)
-                dist_mat = distance_matrix(pred_center, pred_center)
+                    if len(boxes) == 1:
+                        pred_boxes_topK[sample_token] += boxes
+                        continue 
 
-                for i, dist, in enumerate(dist_mat):
-                    idx = np.where(dist < 1e-3)[0][:topK]
-                    score = pred_score[idx][:topK]
+                    test_box = boxes[0]
+                    min_dist = np.inf
+                    match_gt_idx = None
 
+                    for gt_idx, gt_box in enumerate(self.gt_boxes.boxes[sample_token]):
+                        if class_name not in gt_box.detection_name:
+                            continue 
+
+                        this_distance = center_distance(gt_box, test_box)
+                        if this_distance < min_dist:
+                            min_dist = this_distance
+                            match_gt_idx = gt_idx    
+                    
                     min_fde = np.inf 
-                    top_id = None
-                    for bid in idx:
-                        if bid in taken:
-                            continue 
-
-                        taken.add(bid)
-                        if len(idx) == 1:
-                            pred_boxes_topK[sample_token].append(pred_boxes[bid])
-                            continue 
-                        
-                        test_box = pred_boxes[bid]
-                        min_dist = np.inf
-                        match_gt_idx = None
-
-                        for gt_idx, gt_box in enumerate(self.gt_boxes.boxes[sample_token]):
-                            if class_name not in gt_box.detection_name:
-                                continue 
-
-                            this_distance = center_distance(gt_box, test_box)
-                            if this_distance < min_dist:
-                                min_dist = this_distance
-                                match_gt_idx = gt_idx    
-
-                        if match_gt_idx is not None:
+                    match_box = None
+                    if match_gt_idx is not None:
+                        for box in boxes:
                             match_gt = self.gt_boxes.boxes[sample_token][match_gt_idx]
                             fde = center_distance(match_gt.forecast_boxes[-1], test_box.forecast_boxes[-1])
                             if fde < min_fde:
                                 min_fde = fde 
-                                top_id = bid
-                    
-                    if top_id is not None:
-                        pred_boxes_topK[sample_token].append(pred_boxes[top_id]) 
-                    else   
-                        pred_boxes_topK[sample_token].append(pred_boxes[idx[0]]) 
-
+                                match_box = box
+                        
+                        pred_boxes_topK[sample_token].append(match_box)
+                    else:
+                        pred_boxes_topK[sample_token].append(test_box)
+                
         for sample_token in self.gt_boxes.boxes.keys():
             self.pred_boxes.boxes[sample_token] = pred_boxes_topK[sample_token]
-
+        
         self.sample_tokens = self.gt_boxes.sample_tokens
 
 

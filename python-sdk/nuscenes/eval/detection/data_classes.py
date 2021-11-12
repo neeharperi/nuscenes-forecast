@@ -552,6 +552,8 @@ class DetectionBox(EvalBox):
                  num_pts: int = -1,  # Nbr. LIDAR or RADAR inside the box. Only for gt boxes.
                  detection_name: str = 'car',  # The class name used in the detection challenge.
                  detection_score: float = -1.0,  # GT samples do not have a score.
+                 forecast_score: float = -1.0,
+                 forecast_id: int = -1,
                  attribute_name: str = ''):  # Box attribute. Each box can have at most 1 attribute.
 
         super().__init__(sample_token, translation, size, rotation, velocity, ego_translation, num_pts)
@@ -569,6 +571,8 @@ class DetectionBox(EvalBox):
         self.forecast_boxes = forecast_boxes
         self.detection_name = detection_name
         self.detection_score = detection_score
+        self.forecast_score = forecast_score
+        self.forecast_id = forecast_id
         self.attribute_name = attribute_name
 
     def __eq__(self, other):
@@ -596,6 +600,8 @@ class DetectionBox(EvalBox):
             'num_pts': self.num_pts,
             'detection_name': self.detection_name,
             'detection_score': self.detection_score,
+            'forecast_score': self.forecast_score,
+            'forecast_id': self.forecast_id,
             'attribute_name': self.attribute_name
         }
 
@@ -613,6 +619,8 @@ class DetectionBox(EvalBox):
                    num_pts=-1 if 'num_pts' not in content else int(content['num_pts']),
                    detection_name=content['detection_name'],
                    detection_score=-1.0 if 'detection_score' not in content else float(content['detection_score']),
+                   forecast_score=-1.0 if 'forecast_score' not in content else float(content['forecast_score']),
+                   forecast_id=-1 if 'forecast_id' not in content else int(content['forecast_id']),
                    attribute_name=content['attribute_name'])
 
 
