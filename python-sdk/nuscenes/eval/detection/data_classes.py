@@ -221,7 +221,7 @@ class DetectionMetricData(MetricData):
                    )
 
     @classmethod
-    def no_predictions(cls, timesteps=6):
+    def no_predictions(cls, timesteps=7):
         """ Returns a md instance corresponding to having no predictions. """
         return cls(recall=np.linspace(0, 1, cls.nelem),
                    precision=np.zeros(cls.nelem),
@@ -244,7 +244,7 @@ class DetectionMetricData(MetricData):
                    )
 
     @classmethod
-    def random_md(cls, timesteps=6):
+    def random_md(cls, timesteps=7):
         """ Returns an md instance corresponding to a random results. """
         return cls(recall=np.linspace(0, 1, cls.nelem),
                    precision=np.random.random(cls.nelem),
@@ -342,8 +342,8 @@ class DetectionMetrics:
     @property
     def mean_dist_aps_mr(self) -> Dict[str, float]:
         """ Calculates the mean over distance thresholds for each label. """
-        return {class_name: np.mean(list(d.values())) for class_name, d in self._label_aps_mr.items()}
 
+        return {class_name: np.mean(list(d.values())) for class_name, d in self._label_aps_mr.items()}
     @property
     def mean_dist_ars(self) -> Dict[str, float]:
         """ Calculates the mean over distance thresholds for each label. """
@@ -379,7 +379,6 @@ class DetectionMetrics:
     def mean_ap_mr(self) -> float:
         """ Calculates the mean AP by averaging over distance thresholds and classes. """
         return float(np.mean(list(self.mean_dist_aps_mr.values())))
-
 
     @property
     def mean_ar(self) -> float:

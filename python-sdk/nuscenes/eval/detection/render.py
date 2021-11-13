@@ -156,7 +156,7 @@ def visualize_sample_forecast(nusc: NuScenes,
                     size = box["size"],
                     orientation = Quaternion(box["rotation"]),
                     velocity = np.array(list(box["velocity"]) + [0]),
-                    name = box["detection_name"],
+                    name = boxes.detection_name,
                     token = box["sample_token"]
                     )
 
@@ -185,7 +185,7 @@ def visualize_sample_forecast(nusc: NuScenes,
                     size = box["size"],
                     orientation = Quaternion(box["rotation"]),
                     velocity = np.array(list(box["velocity"]) + [0]),
-                    name = box["detection_name"],
+                    name = boxes.detection_name,
                     score = box["detection_score"],
                     token = box["sample_token"]
                     )

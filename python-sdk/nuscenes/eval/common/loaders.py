@@ -37,13 +37,9 @@ def forecast_annotation(nusc, sample_annotation, sample_token, name, attr, times
     pose_record = nusc.get("ego_pose", sd_record["ego_pose_token"])
 
     stale_trajectory = False
-    
+    stale_count = 0
     for i in range(timesteps):
         curr_token = nusc.sample[sample_tokens.index(sample_annotation["sample_token"])]["data"]["LIDAR_TOP"]
-        curr_sd_record = nusc.get("sample_data", curr_token)
-        curr_cs_record = nusc.get("calibrated_sensor", curr_sd_record["calibrated_sensor_token"])
-        curr_pose_record = nusc.get("ego_pose", curr_sd_record["ego_pose_token"])
-        
 
         box = Box(center = sample_annotation["translation"],
             size = sample_annotation["size"],
@@ -51,32 +47,10 @@ def forecast_annotation(nusc, sample_annotation, sample_token, name, attr, times
             velocity = nusc.box_velocity(sample_annotation["token"]),
             name = sample_annotation["category_name"],
             token = sample_annotation["token"])
-        
+
         if stale_trajectory:
-            prev_token = nusc.get("sample_annotation", sample_annotation["prev"])["sample_token"]
-            curr_token = sample_annotation["sample_token"]
-            if prev_token == "":
-                time = 0.5
-            else:
-                time = get_time(nusc, prev_token, curr_token)
-            
-            box.center = box.center + time * box.velocity
+            box.center = box.center + stale_count * 0.5 * box.velocity
 
-        box.translate(-np.array(pose_record["translation"]))
-        box.rotate(Quaternion(pose_record["rotation"]).inverse)
-
-        #  Move box to sensor coord system
-        box.translate(-np.array(cs_record["translation"]))
-        box.rotate(Quaternion(cs_record["rotation"]).inverse)
-
-        # Move box to ego vehicle coord system
-        box.rotate(Quaternion(cs_record["rotation"]))
-        box.translate(np.array(cs_record["translation"]))
-
-        # Move box to global coord system
-        box.rotate(Quaternion(pose_record["rotation"]))
-        box.translate(np.array(pose_record["translation"]))
-        
         forecast_box.append({'sample_token' : sample_annotation["sample_token"],
                                     'translation' : box.center,
                                     'size' : box.wlh,
@@ -91,8 +65,17 @@ def forecast_annotation(nusc, sample_annotation, sample_token, name, attr, times
         next_token = sample_annotation["next"]
 
         if next_token != "":
-            stale_trajectory = True
+            stale_trajectory = False
+            stale_count = 0
+
             sample_annotation = nusc.get("sample_annotation", next_token)
+        else:
+            stale_trajectory = True
+            stale_count = stale_count + 1
+
+      
+    
+    assert len(forecast_box) == timesteps
 
     return forecast_box
 
@@ -128,7 +111,7 @@ def load_prediction(result_path: str, max_boxes_per_sample: int, box_cls, verbos
     return all_results, meta
 
 
-def load_gt(nusc: NuScenes, eval_split: str, box_cls, verbose: bool = False, forecast: int = 5) -> EvalBoxes:
+def load_gt(nusc: NuScenes, eval_split: str, box_cls, verbose: bool = False, forecast: int = 7) -> EvalBoxes:
     """
     Loads ground truth boxes from DB.
     :param nusc: A NuScenes instance.

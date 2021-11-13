@@ -14,10 +14,12 @@ from collections import defaultdict
 from nuscenes import NuScenes
 from nuscenes.eval.common.config import config_factory
 from nuscenes.eval.common.data_classes import EvalBoxes, EvalBox
+from nuscenes.utils.data_classes import Box
 from nuscenes.eval.common.loaders import load_prediction, load_gt, add_center_dist, filter_eval_boxes
 from nuscenes.eval.detection.algo import accumulate, calc_ap, calc_ap_mr, calc_ar, calc_tp, calc_fap, calc_far, calc_aap, calc_aar
 from nuscenes.eval.detection.constants import TP_METRICS
 from nuscenes.eval.detection.data_classes import DetectionConfig, DetectionMetrics, DetectionBox, DetectionMetricDataList, DetectionMetricData
+from pyquaternion import Quaternion
 
 from copy import deepcopy
 from nuscenes.eval.detection.render import summary_plot, class_pr_curve, class_tp_curve, dist_pr_curve, visualize_sample
@@ -31,7 +33,7 @@ def box_center(boxes):
     return center_box
 
 def box_scores(boxes):
-    box = np.array([box.detection_score for box in boxes]) 
+    box = np.array([box.forecast_score for box in boxes]) 
     return box
 
 def distance_matrix(A, B, squared=False):
@@ -71,12 +73,39 @@ def trajectory(nusc, box: DetectionBox, timesteps=7) -> float:
         return "moving"
 
 
-def serialize_box(box):
-    box = DetectionBox(sample_token=box["sample_token"],
-                        translation=box["translation"],
-                        size=box["size"],
-                        rotation=box["rotation"],
-                        velocity=box["velocity"])
+def serialize_box(nusc, box, sample_tokens, coordinate_transform=False):
+    if coordinate_transform == False:
+        box = DetectionBox(sample_token=box["sample_token"],
+                            translation=box["translation"],
+                            size=box["size"],
+                            rotation=box["rotation"],
+                            velocity=box["velocity"])
+
+    else:
+        sample_token = box["sample_token"]
+
+        box = Box(center=box["translation"],
+                size=box["size"],
+                orientation=Quaternion(*box["rotation"]),
+                velocity=list(box["velocity"][:2]) + [0])
+        
+        token = nusc.sample[sample_tokens.index(sample_token)]["data"]["LIDAR_TOP"]
+        sd_record = nusc.get("sample_data", token)
+        cs_record = nusc.get("calibrated_sensor", sd_record["calibrated_sensor_token"])
+        pose_record = nusc.get("ego_pose", sd_record["ego_pose_token"])
+        
+        box.translate(-np.array(pose_record["translation"]))
+        box.rotate(Quaternion(pose_record["rotation"]).inverse)
+
+        #  Move box to sensor coord system
+        box.translate(-np.array(cs_record["translation"]))
+        box.rotate(Quaternion(cs_record["rotation"]).inverse)
+        
+        box = DetectionBox(translation=box.center,
+                size=box.wlh,
+                rotation=[box.orientation[0], box.orientation[1], box.orientation[2], box.orientation[3]],
+                velocity=box.velocity[:2])
+    
     return box
 
 class DetectionEval:
@@ -147,14 +176,15 @@ class DetectionEval:
 
         self.pred_boxes, self.meta = load_prediction(self.result_path, self.cfg.max_boxes_per_sample, DetectionBox, verbose=verbose)
         self.gt_boxes = load_gt(self.nusc, self.eval_set, DetectionBox, verbose=verbose, forecast=forecast)
-        
+        sample_tokens = [s["token"] for s in nusc.sample]
+
         print("Deserializing forecast data")
         for sample_token in tqdm(self.gt_boxes.boxes.keys()):
             for box in self.pred_boxes.boxes[sample_token]:
-                box.forecast_boxes = [serialize_box(box) for box in box.forecast_boxes]
+                box.forecast_boxes = [serialize_box(nusc, box, sample_tokens, True) for box in box.forecast_boxes]
 
             for box in self.gt_boxes.boxes[sample_token]:
-                box.forecast_boxes = [serialize_box(box) for box in box.forecast_boxes]
+                box.forecast_boxes = [serialize_box(nusc, box, sample_tokens, True) for box in box.forecast_boxes]
                 
         assert set(self.pred_boxes.sample_tokens) == set(self.gt_boxes.sample_tokens), \
             "Samples in split doesn't match samples in predictions."
@@ -174,10 +204,10 @@ class DetectionEval:
             for sample_token in self.pred_boxes.boxes.keys():
                 reranked_boxes = []
                 for boxes in self.pred_boxes.boxes[sample_token]:
-                    if np.linalg.norm(boxes.velocity[:2]) < 0.2:
+                    if trajectory(nusc, boxes, forecast) != "static":
                         boxes.detection_score = 0
                     
-                    reranked_boxes.append(boxes.detection_score)
+                    reranked_boxes.append(boxes)
 
                 self.pred_boxes.boxes[sample_token] = reranked_boxes
                 
@@ -198,6 +228,7 @@ class DetectionEval:
         pred_boxes_topK = {}
         for class_name in ["car", "pedestrian"]:
             for sample_token in self.gt_boxes.boxes.keys():
+                
                 if sample_token not in pred_boxes_topK:
                     pred_boxes_topK[sample_token] = []
 

@@ -46,16 +46,7 @@ def accumulate(nusc,
     # For missing classes in the GT, return a data structure corresponding to no predictions.
 
     # Organize the predictions in a single list.
-    if cohort_analysis:
-        if "car" in class_name:
-            name = "car"
-        else:
-            name = "pedestrian"    
-
-        pred_boxes_list = [box for box in pred_boxes.all if name in box.detection_name]
-
-    else:
-        pred_boxes_list = [box for box in pred_boxes.all if box.detection_name == class_name]
+    pred_boxes_list = [box for box in pred_boxes.all if box.detection_name == class_name]
     
     pred_confs = [box.detection_score for box in pred_boxes_list]
 
@@ -134,8 +125,7 @@ def accumulate(nusc,
 
                     # Since it is a match, update match data also.
                     gt_box_match = gt_boxes[pred_boxes_list[ind].sample_token][match_gt_idx]
-
-                    mr = miss_rate(nusc, gt_box_match, pred_boxes_list[ind], thresh=dist_th)
+                    mr = miss_rate(nusc, gt_box_match, pred_boxes_list[ind])
 
                     if mr == 0:
                         tp_mr.append(1)
@@ -164,10 +154,6 @@ def accumulate(nusc,
                     match_data['conf'].append(pred_boxes_list[ind].detection_score)
 
             else:
-                if cohort_analysis:
-                    if pred_boxes_list[ind].detection_name != class_name:
-                        continue 
-
                 # No match. Mark this as a false positive.
                 ftp[i].append(0)
                 ffp[i].append(1)   
@@ -280,6 +266,7 @@ def calc_ap_mr(md: DetectionMetricData, min_recall: float, min_precision: float)
     prec = prec[round(100 * min_recall) + 1:]  # Clip low recalls. +1 to exclude the min recall bin.
     prec -= min_precision  # Clip low precision
     prec[prec < 0] = 0
+
     return float(np.mean(prec)) / (1.0 - min_precision)
 
 def calc_ar(md: DetectionMetricData) -> float:
