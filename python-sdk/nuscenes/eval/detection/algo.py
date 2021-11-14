@@ -125,7 +125,7 @@ def accumulate(nusc,
 
                     # Since it is a match, update match data also.
                     gt_box_match = gt_boxes[pred_boxes_list[ind].sample_token][match_gt_idx]
-                    mr = miss_rate(nusc, gt_box_match, pred_boxes_list[ind])
+                    mr = miss_rate(nusc, gt_box_match, pred_boxes_list[ind], 4.0)
 
                     if mr == 0:
                         tp_mr.append(1)

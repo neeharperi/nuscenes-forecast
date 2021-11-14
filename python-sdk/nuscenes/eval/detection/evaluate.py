@@ -73,39 +73,12 @@ def trajectory(nusc, box: DetectionBox, timesteps=7) -> float:
         return "moving"
 
 
-def serialize_box(nusc, box, sample_tokens, coordinate_transform=False):
-    if coordinate_transform == False:
-        box = DetectionBox(sample_token=box["sample_token"],
-                            translation=box["translation"],
-                            size=box["size"],
-                            rotation=box["rotation"],
-                            velocity=box["velocity"])
-
-    else:
-        sample_token = box["sample_token"]
-
-        box = Box(center=box["translation"],
-                size=box["size"],
-                orientation=Quaternion(*box["rotation"]),
-                velocity=list(box["velocity"][:2]) + [0])
-        
-        token = nusc.sample[sample_tokens.index(sample_token)]["data"]["LIDAR_TOP"]
-        sd_record = nusc.get("sample_data", token)
-        cs_record = nusc.get("calibrated_sensor", sd_record["calibrated_sensor_token"])
-        pose_record = nusc.get("ego_pose", sd_record["ego_pose_token"])
-        
-        box.translate(-np.array(pose_record["translation"]))
-        box.rotate(Quaternion(pose_record["rotation"]).inverse)
-
-        #  Move box to sensor coord system
-        box.translate(-np.array(cs_record["translation"]))
-        box.rotate(Quaternion(cs_record["rotation"]).inverse)
-        
-        box = DetectionBox(translation=box.center,
-                size=box.wlh,
-                rotation=[box.orientation[0], box.orientation[1], box.orientation[2], box.orientation[3]],
-                velocity=box.velocity[:2])
-    
+def serialize_box(box):
+    box = DetectionBox(sample_token=box["sample_token"],
+                        translation=box["translation"],
+                        size=box["size"],
+                        rotation=box["rotation"],
+                        velocity=box["velocity"])
     return box
 
 class DetectionEval:
@@ -181,10 +154,10 @@ class DetectionEval:
         print("Deserializing forecast data")
         for sample_token in tqdm(self.gt_boxes.boxes.keys()):
             for box in self.pred_boxes.boxes[sample_token]:
-                box.forecast_boxes = [serialize_box(nusc, box, sample_tokens, True) for box in box.forecast_boxes]
+                box.forecast_boxes = [serialize_box(box) for box in box.forecast_boxes]
 
             for box in self.gt_boxes.boxes[sample_token]:
-                box.forecast_boxes = [serialize_box(nusc, box, sample_tokens, True) for box in box.forecast_boxes]
+                box.forecast_boxes = [serialize_box(box) for box in box.forecast_boxes]
                 
         assert set(self.pred_boxes.sample_tokens) == set(self.gt_boxes.sample_tokens), \
             "Samples in split doesn't match samples in predictions."
@@ -202,14 +175,19 @@ class DetectionEval:
 
         if self.static_only:
             for sample_token in self.pred_boxes.boxes.keys():
-                reranked_boxes = []
+                static_boxes = []
                 for boxes in self.pred_boxes.boxes[sample_token]:
                     if trajectory(nusc, boxes, forecast) != "static":
                         boxes.detection_score = 0
-                    
-                    reranked_boxes.append(boxes)
 
-                self.pred_boxes.boxes[sample_token] = reranked_boxes
+                    center = boxes.translation
+
+                    for box in boxes.forecast_boxes:
+                        box.translation = center
+                    
+                    static_boxes.append(boxes)
+
+                self.pred_boxes.boxes[sample_token] = static_boxes
                 
 
         # Add center distances.

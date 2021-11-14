@@ -73,8 +73,6 @@ def forecast_annotation(nusc, sample_annotation, sample_token, name, attr, times
             stale_trajectory = True
             stale_count = stale_count + 1
 
-      
-    
     assert len(forecast_box) == timesteps
 
     return forecast_box
