@@ -49,7 +49,7 @@ def accumulate(nusc,
     # Organize the predictions in a single list.
 
     if cohort_analysis:
-        classname = "car"
+        classname = "car" if "car" in class_name else "pedestrian"
     else:
         classname = class_name
 
