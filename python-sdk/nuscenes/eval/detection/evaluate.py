@@ -20,7 +20,7 @@ from nuscenes.eval.detection.algo import accumulate, calc_ap, calc_ap_mr, calc_a
 from nuscenes.eval.detection.constants import TP_METRICS
 from nuscenes.eval.detection.data_classes import DetectionConfig, DetectionMetrics, DetectionBox, DetectionMetricDataList, DetectionMetricData
 from pyquaternion import Quaternion
-
+import pickle
 from copy import deepcopy
 from nuscenes.eval.detection.render import summary_plot, class_pr_curve, class_tp_curve, dist_pr_curve, visualize_sample
 from tqdm import tqdm 
@@ -101,6 +101,7 @@ class DetectionEval:
 
     Please see https://www.nuscenes.org/object-detection for more details.
     """
+
     def __init__(self,
                  nusc: NuScenes,
                  config: DetectionConfig,
@@ -112,7 +113,8 @@ class DetectionEval:
                  tp_pct: float = 0.6,
                  static_only: bool = False,
                  cohort_analysis: bool = False,
-                 topK: int = 1):
+                 topK: int = 1,
+                 root: str = "/ssd0/nperi/nuScenes"):
         """
         Initialize a DetectionEval object.
         :param nusc: A NuScenes object.
@@ -148,7 +150,13 @@ class DetectionEval:
             print('Initializing nuScenes detection evaluation')
 
         self.pred_boxes, self.meta = load_prediction(self.result_path, self.cfg.max_boxes_per_sample, DetectionBox, verbose=verbose)
-        self.gt_boxes = load_gt(self.nusc, self.eval_set, DetectionBox, verbose=verbose, forecast=forecast)
+        
+        if os.path.isfile(root + "/gt.pkl"):
+            self.gt_boxes = pickle.load(open(root + "/gt.pkl", "rb"))
+        else:
+            self.gt_boxes = load_gt(self.nusc, self.eval_set, DetectionBox, verbose=verbose, forecast=forecast)
+            pickle.dump(self.gt_boxes, open(root + "/gt.pkl", "wb"))
+
         sample_tokens = [s["token"] for s in nusc.sample]
 
         print("Deserializing forecast data")
@@ -178,12 +186,7 @@ class DetectionEval:
                 static_boxes = []
                 for boxes in self.pred_boxes.boxes[sample_token]:
                     if trajectory(nusc, boxes, forecast) != "static":
-                        boxes.detection_score = 0
-
-                    center = boxes.translation
-
-                    for box in boxes.forecast_boxes:
-                        box.translation = center
+                        continue
                     
                     static_boxes.append(boxes)
 
@@ -240,7 +243,7 @@ class DetectionEval:
                     if match_gt_idx is not None:
                         for box in boxes:
                             match_gt = self.gt_boxes.boxes[sample_token][match_gt_idx]
-                            fde = center_distance(match_gt.forecast_boxes[-1], test_box.forecast_boxes[-1])
+                            fde = center_distance(match_gt.forecast_boxes[-1], box.forecast_boxes[-1])
                             if fde < min_fde:
                                 min_fde = fde 
                                 match_box = box
@@ -251,7 +254,71 @@ class DetectionEval:
                 
         for sample_token in self.gt_boxes.boxes.keys():
             self.pred_boxes.boxes[sample_token] = pred_boxes_topK[sample_token]
+
+        '''
+        pred_boxes_topK = {}
+        taken = set()
+        matched_groups = set()
+
+        for class_name in ["car", "pedestrian"]:
+            pred_boxes_list = [box for box in self.pred_boxes.all if class_name in box.detection_name]
+            groups = set([box.forecast_id for box in pred_boxes_list])
+
+            pred_confs = [box.detection_score for box in pred_boxes_list]
+            sortind = [i for (v, i) in sorted((v, i) for (i, v) in enumerate(pred_confs))][::-1]
+
+            for ind in tqdm(sortind):
+                pred_box = pred_boxes_list[ind]
+                sample_token = pred_box.sample_token 
+
+                if sample_token not in pred_boxes_topK:
+                    pred_boxes_topK[sample_token] = []
+
+                group = pred_box.forecast_id
+
+                if (group, sample_token) in matched_groups:
+                    continue 
+
+                matched_groups.add((group, sample_token))
+
+                boxes = [box for box in pred_boxes_list if box.forecast_id == group and box.sample_token == sample_token]
+                scores = box_scores(boxes)
+                boxes = [b for _, b in sorted(zip(scores, boxes))][:topK]
+
+                if len(boxes) == 1:
+                    pred_boxes_topK[sample_token] += boxes
+                    continue 
+
+                test_box = boxes[0]
+                min_dist = np.inf
+                match_gt_idx = None
+
+                for gt_idx, gt_box in enumerate(self.gt_boxes.boxes[sample_token]):
+                    if class_name in gt_box.detection_name and not (sample_token, gt_idx) in taken:
+                        this_distance = center_distance(gt_box, test_box)
+                        if this_distance < min_dist:
+                            min_dist = this_distance
+                            match_gt_idx = gt_idx    
+                
+                min_fde = np.inf 
+                match_box = None
+                if match_gt_idx is not None:
+                    taken.add((sample_token, match_gt_idx))
+
+                    for box in boxes:
+                        match_gt = self.gt_boxes.boxes[sample_token][match_gt_idx]
+                        fde = center_distance(match_gt.forecast_boxes[-1], box.forecast_boxes[-1])
+                        if fde < min_fde:
+                            min_fde = fde 
+                            match_box = box
+                    
+                    pred_boxes_topK[sample_token].append(match_box)
+                else:
+                    pred_boxes_topK[sample_token].append(test_box)
         
+        for sample_token in self.gt_boxes.boxes.keys():
+            self.pred_boxes.boxes[sample_token] = pred_boxes_topK[sample_token]
+        '''
         self.sample_tokens = self.gt_boxes.sample_tokens
 
 

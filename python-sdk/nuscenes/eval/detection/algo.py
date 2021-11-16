@@ -46,7 +46,13 @@ def accumulate(nusc,
     # For missing classes in the GT, return a data structure corresponding to no predictions.
 
     # Organize the predictions in a single list.
-    pred_boxes_list = [box for box in pred_boxes.all if box.detection_name == class_name]
+
+    if cohort_analysis:
+        classname = "car" if "car" in class_name else "pedestrian"
+    else:
+        classname = class_name
+
+    pred_boxes_list = [box for box in pred_boxes.all if classname in box.detection_name]
     
     pred_confs = [box.detection_score for box in pred_boxes_list]
 
@@ -154,6 +160,9 @@ def accumulate(nusc,
                     match_data['conf'].append(pred_boxes_list[ind].detection_score)
 
             else:
+                if pred_box.detection_name != class_name:
+                    continue
+                    
                 # No match. Mark this as a false positive.
                 ftp[i].append(0)
                 ffp[i].append(1)   
