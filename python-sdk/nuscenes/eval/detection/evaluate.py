@@ -224,7 +224,7 @@ class DetectionEval:
                     except:
                         boxes = [box for box in pred_boxes if box.forecast_id == group][:topK]
                  
-                 if len(boxes) == 1:
+                    if len(boxes) == 1:
                         pred_boxes_topK[sample_token] += boxes
                         continue 
 
