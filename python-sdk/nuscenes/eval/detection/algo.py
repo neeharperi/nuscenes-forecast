@@ -13,6 +13,7 @@ from nuscenes.eval.detection.data_classes import DetectionConfig, DetectionMetri
 import copy
 import pdb
 
+forecast_match = {0.5: 1, 1: 2, 2: 4, 4: 6}
 def accumulate(nusc, 
                gt_boxes: EvalBoxes,
                pred_boxes: EvalBoxes,
@@ -48,7 +49,7 @@ def accumulate(nusc,
     # Organize the predictions in a single list.
 
     if cohort_analysis:
-        classname = "car" if "car" in class_name else "pedestrian"
+        classname = "car"
     else:
         classname = class_name
 
@@ -131,7 +132,7 @@ def accumulate(nusc,
 
                     # Since it is a match, update match data also.
                     gt_box_match = gt_boxes[pred_boxes_list[ind].sample_token][match_gt_idx]
-                    mr = miss_rate(nusc, gt_box_match, pred_boxes_list[ind], 4.0)
+                    mr = miss_rate(nusc, gt_box_match, pred_boxes_list[ind], forecast_match[dist_th])
 
                     if mr == 0:
                         tp_mr.append(1)

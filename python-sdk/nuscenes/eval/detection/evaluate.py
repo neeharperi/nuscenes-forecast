@@ -207,7 +207,7 @@ class DetectionEval:
         
         ########################################################################################################
         pred_boxes_topK = {}
-        for class_name in ["car", "pedestrian"]:
+        for class_name in ["car"]:
             for sample_token in self.gt_boxes.boxes.keys():
                 
                 if sample_token not in pred_boxes_topK:
@@ -224,7 +224,7 @@ class DetectionEval:
                     except:
                         boxes = [box for box in pred_boxes if box.forecast_id == group][:topK]
                  
-                 if len(boxes) == 1:
+                    if len(boxes) == 1:
                         pred_boxes_topK[sample_token] += boxes
                         continue 
 

@@ -1,10 +1,7 @@
 {
   "class_range": {
     "static_car": 50,
-    "static_pedestrian": 40,
-
-    "moving_car": 50,
-    "moving_pedestrian": 40
+    "moving_car": 50
   },
   
   "dist_fcn": "center_distance",
