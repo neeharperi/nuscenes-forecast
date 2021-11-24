@@ -186,7 +186,10 @@ class DetectionEval:
                 static_boxes = []
                 for boxes in self.pred_boxes.boxes[sample_token]:
                     if trajectory(nusc, boxes, forecast) != "static":
-                        continue
+                        translation = boxes.translation
+
+                        for box in boxes.forecast_boxes:
+                            boxes.translation = translation
                     
                     static_boxes.append(boxes)
 

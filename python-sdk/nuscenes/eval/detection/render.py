@@ -126,7 +126,8 @@ def visualize_sample_forecast(nusc: NuScenes,
                               eval_range: float = 50,
                               verbose: bool = True,
                               savepath: str = None,
-                              classname = []) -> None:
+                              classname = [],
+                              dets_only = False) -> None:
     """
     Visualizes a sample from BEV with annotations and detection results.
     :param nusc: NuScenes object.
@@ -213,7 +214,7 @@ def visualize_sample_forecast(nusc: NuScenes,
     # Show point cloud.
     points = view_points(pc.points[:3, :], np.eye(4), normalize=False)
     dists = np.sqrt(np.sum(pc.points[:2, :] ** 2, axis=0))
-    colors = np.minimum(1, dists / eval_range)
+    colors = '#d3d3d3'
     ax.scatter(points[0, :], points[1, :], c=colors, s=0.2)
 
     # Show ego vehicle.
@@ -228,7 +229,7 @@ def visualize_sample_forecast(nusc: NuScenes,
 
     # Show EST boxes.
     for box, center in zip(boxes_est, center_est):
-        if box.name not in classname: 
+        if box.name not in classname and not dets_only: 
             continue
 
         # Show only predictions with a high score.
@@ -236,16 +237,26 @@ def visualize_sample_forecast(nusc: NuScenes,
         if box.score >= conf_th:
             # Move box to ego vehicle coord system.
 
-            
-            box.render_forecast(ax, view=np.eye(4), colors=('b', 'b', 'b'), linewidth=1, center=center)
+            if dets_only:
+                if box.name in [0]:
+                    clr = ('b', 'b', 'b')
+                #elif box.name in [2]:
+                #    clr = ('c', 'c', 'c')
+                elif box.name in [4]:
+                    clr = ('m', 'm', 'm')
+                else:
+                    continue
+            else:
+                clr = ('b', 'b', 'b')
+            box.render_forecast(ax, view=np.eye(4), colors=clr, linewidth=1, center=center)
 
     # Limit visible range.
     axes_limit = eval_range + 3  # Slightly bigger to include boxes that extend beyond the range.
     ax.set_xlim(-axes_limit, axes_limit)
     ax.set_ylim(-axes_limit, axes_limit)
+    plt.axis('off')
 
-
-    plt.title(sample_token)
+    #plt.title(sample_token)
     if savepath is not None:
         plt.savefig(savepath)
         plt.close()

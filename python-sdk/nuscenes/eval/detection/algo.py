@@ -13,6 +13,15 @@ from nuscenes.eval.detection.data_classes import DetectionConfig, DetectionMetri
 import copy
 import pdb
 
+def match(gt, pred, class_name):
+    if gt == class_name:
+        return True 
+
+    if gt == "ignore" and pred == class_name:
+        return True 
+
+    return False 
+
 forecast_match = {0.5: 1, 1: 2, 2: 4, 4: 6}
 def accumulate(nusc, 
                gt_boxes: EvalBoxes,
@@ -78,9 +87,18 @@ def accumulate(nusc,
     fp_mr = []  # Accumulator of false positives.
     conf = []  # Accumulator of confidences.
 
+    gt_name = []
+    pred_name = []
+
+    gt_forecast_name = []
+    pred_forecast_name = []
+
     for i in range(forecast):
         ftp.append([])
         ffp.append([])
+
+        gt_forecast_name.append([])
+        pred_forecast_name.append([])
 
     # match_data holds the extra metrics we calculate for each match.
     match_data = {'trans_err': [],
@@ -110,7 +128,7 @@ def accumulate(nusc,
             for gt_idx, gt_box in enumerate(gt_boxes[pred_boxes_list[ind].sample_token]):
 
                 # Find closest match among ground truth boxes
-                if gt_box.detection_name == class_name and not (pred_boxes_list[ind].sample_token, gt_idx) in taken:
+                if classname in gt_box.detection_name and not (pred_boxes_list[ind].sample_token, gt_idx) in taken:
                     this_distance = dist_fcn(gt_box.forecast_boxes[i], pred_box)
                     if this_distance < min_dist:
                         min_dist = this_distance
@@ -125,13 +143,21 @@ def accumulate(nusc,
                 ftp[i].append(1)
                 ffp[i].append(0)
 
+                gt_box_match = gt_boxes[pred_boxes_list[ind].sample_token][match_gt_idx]
+
+                gt_forecast_name[i].append(gt_box_match.detection_name)
+                pred_forecast_name[i].append("ignore")
+
                 if i == 0:
                     tp.append(1)
                     fp.append(0)
                     conf.append(pred_boxes_list[ind].detection_score) 
 
                     # Since it is a match, update match data also.
-                    gt_box_match = gt_boxes[pred_boxes_list[ind].sample_token][match_gt_idx]
+                    
+                    gt_name.append(gt_box_match.detection_name)
+                    pred_name.append("ignore")
+
                     mr = miss_rate(nusc, gt_box_match, pred_boxes_list[ind], forecast_match[dist_th])
 
                     if mr == 0:
@@ -160,15 +186,18 @@ def accumulate(nusc,
 
                     match_data['conf'].append(pred_boxes_list[ind].detection_score)
 
-            else:
-                if pred_box.detection_name != class_name:
-                    continue
-                    
+            else:                
                 # No match. Mark this as a false positive.
                 ftp[i].append(0)
                 ffp[i].append(1)   
 
+                gt_forecast_name[i].append("ignore")
+                pred_forecast_name[i].append(pred_box.detection_name)
+
                 if i == 0:
+                    gt_name.append("ignore")
+                    pred_name.append(pred_box.detection_name)
+
                     tp.append(0)
                     fp.append(1)
                     tp_mr.append(0)
@@ -184,6 +213,22 @@ def accumulate(nusc,
     # ---------------------------------------------
 
     # Accumulate.
+    if cohort_analysis:
+        select = [match(gt, pred, class_name) for pred, gt in zip(pred_name, gt_name)]
+
+        tp = np.array(tp)[select]
+        fp = np.array(fp)[select]
+        tp_mr = np.array(tp_mr)[select]
+        fp_mr = np.array(fp_mr)[select]
+        conf = np.array(conf)[select]
+
+        select_forecast = [[match(gt, pred, class_name) for pred, gt in zip(pred_forecast_name[i], gt_forecast_name[i])] for i in range(len(ftp))]
+        ftp = [np.array(tp)[select] for tp, select in zip(ftp, select_forecast)]
+        ffp = [np.array(fp)[select] for fp, select in zip(ffp, select_forecast)]
+
+        if len(tp) == 0:
+            return DetectionMetricData.no_predictions()
+
     true_pos = np.sum(tp)
     tp = np.cumsum(tp).astype(np.float)
     fp = np.cumsum(fp).astype(np.float)
