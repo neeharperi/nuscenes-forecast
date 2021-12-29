@@ -5,15 +5,18 @@ def getDetectionNames(cohort_analysis=False):
     if not cohort_analysis:
         #DETECTION_NAMES = ['car', 'truck', 'bus', 'trailer', 'construction_vehicle', 'pedestrian', 'motorcycle', 'bicycle',
         #                'traffic_cone', 'barrier']
-        DETECTION_NAMES = ['car', 'pedestrian']
+        #DETECTION_NAMES = ['car', 'pedestrian']
+        DETECTION_NAMES = ['car']
+
 
     else:
         #DETECTION_NAMES = ['static_car', 'static_truck', 'static_bus', 'static_trailer', 'static_construction_vehicle', 'static_pedestrian', 'static_motorcycle', 'static_bicycle', 'static_traffic_cone', 'static_barrier',
         #'linear_car', 'linear_truck', 'linear_bus', 'linear_trailer', 'linear_construction_vehicle', 'linear_pedestrian', 'linear_motorcycle', 'linear_bicycle', 'linear_traffic_cone', 'linear_barrier',
         #'nonlinear_car', 'nonlinear_truck', 'nonlinear_bus', 'nonlinear_trailer', 'nonlinear_construction_vehicle', 'nonlinear_pedestrian', 'nonlinear_motorcycle', 'nonlinear_bicycle', 'nonlinear_traffic_cone', 'nonlinear_barrier']
 
+        DETECTION_NAMES = ['static_car', 'linear_car', 'nonlinear_car']
         #DETECTION_NAMES = ['static_car', 'static_pedestrian', 'linear_car', 'linear_pedestrian', 'nonlinear_car', 'nonlinear_pedestrian']
-        DETECTION_NAMES = ['static_car', 'static_pedestrian', 'moving_car', 'moving_pedestrian']
+        #DETECTION_NAMES = ['static_car', 'static_pedestrian', 'moving_car', 'moving_pedestrian']
 
 
     return DETECTION_NAMES

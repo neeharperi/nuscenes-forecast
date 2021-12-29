@@ -63,8 +63,12 @@ def visualize_sample(nusc: NuScenes,
     pose_record = nusc.get('ego_pose', sd_record['ego_pose_token'])
 
     # Get boxes.
-    boxes_gt_global = gt_boxes[sample_token]
-    boxes_est_global = pred_boxes[sample_token]
+    if gt_boxes is None and pred_boxes is None:
+        boxes_gt_global = []
+        boxes_est_global = []
+    else:
+        boxes_gt_global = gt_boxes[sample_token]
+        boxes_est_global = pred_boxes[sample_token]
 
     # Map GT boxes to lidar.
     boxes_gt = boxes_to_sensor(boxes_gt_global, pose_record, cs_record)
@@ -77,7 +81,7 @@ def visualize_sample(nusc: NuScenes,
         box_est.score = box_est_global.detection_score
 
     # Get point cloud in lidar frame.
-    pc, _ = LidarPointCloud.from_file_multisweep(nusc, sample_rec, 'LIDAR_TOP', 'LIDAR_TOP', nsweeps=10)
+    pc, _ = LidarPointCloud.from_file_multisweep(nusc, sample_rec, 'LIDAR_TOP', 'LIDAR_TOP', nsweeps=20)
 
     # Init axes.
     _, ax = plt.subplots(1, 1, figsize=(9, 9))

@@ -20,6 +20,14 @@ from nuscenes.utils.splits import create_splits_scenes
 from itertools import tee
 import pdb
 
+def window(iterable, size):
+    iters = tee(iterable, size)
+    for i in range(1, size):
+        for each in iters[i:]:
+            next(each, None)
+
+    return zip(*iters)
+
 def get_time(nusc, src_token, dst_token):
     time_last = 1e-6 * nusc.get('sample', src_token)["timestamp"]
     time_first = 1e-6 * nusc.get('sample', dst_token)["timestamp"]
@@ -37,7 +45,6 @@ def forecast_annotation(nusc, sample_annotation, sample_token, name, attr, times
     pose_record = nusc.get("ego_pose", sd_record["ego_pose_token"])
 
     stale_trajectory = False
-    stale_count = 0
     for i in range(timesteps):
         curr_token = nusc.sample[sample_tokens.index(sample_annotation["sample_token"])]["data"]["LIDAR_TOP"]
 
@@ -47,9 +54,6 @@ def forecast_annotation(nusc, sample_annotation, sample_token, name, attr, times
             velocity = nusc.box_velocity(sample_annotation["token"]),
             name = sample_annotation["category_name"],
             token = sample_annotation["token"])
-
-        if stale_trajectory:
-            box.center = box.center + stale_count * 0.5 * box.velocity
 
         forecast_box.append({'sample_token' : sample_annotation["sample_token"],
                                     'translation' : box.center,
@@ -65,15 +69,12 @@ def forecast_annotation(nusc, sample_annotation, sample_token, name, attr, times
         next_token = sample_annotation["next"]
 
         if next_token != "":
-            stale_trajectory = False
-            stale_count = 0
-
             sample_annotation = nusc.get("sample_annotation", next_token)
         else:
             stale_trajectory = True
-            stale_count = stale_count + 1
 
-    assert len(forecast_box) == timesteps
+    if stale_trajectory:
+        return None
 
     return forecast_box
 
@@ -189,6 +190,9 @@ def load_gt(nusc: NuScenes, eval_split: str, box_cls, verbose: bool = False, for
                     raise Exception('Error: GT annotations must not have more than one attribute!')
 
                 forecast_boxes = forecast_annotation(nusc, sample_annotation, sample_token, detection_name, attribute_name, forecast)
+
+                if forecast_boxes is None:
+                    continue 
 
                 sample_boxes.append(
                     box_cls(

@@ -141,17 +141,15 @@ def ade(nusc, gt_box: DetectionBox, pred_box: DetectionBox) -> float:
     #    return np.nan
 
 def fde(nusc, gt_box: DetectionBox, pred_box: DetectionBox) -> float:
-    #try:
     dist = center_distance(gt_box.forecast_boxes[-1], pred_box.forecast_boxes[-1])
-    
+  
     return dist
     #except:
     #    return np.nan
 
 def miss_rate(nusc, gt_box: DetectionBox, pred_box: DetectionBox, thresh : float = 2.0) -> float:
     #try:
-    dist = fde(nusc, gt_box, pred_box)
-
+    dist = center_distance(gt_box, pred_box)
     return 1 if dist > thresh else 0
     #except:
     #    return np.nan

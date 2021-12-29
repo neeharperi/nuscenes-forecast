@@ -16,7 +16,7 @@ from nuscenes.eval.common.config import config_factory
 from nuscenes.eval.common.data_classes import EvalBoxes, EvalBox
 from nuscenes.utils.data_classes import Box
 from nuscenes.eval.common.loaders import load_prediction, load_gt, add_center_dist, filter_eval_boxes
-from nuscenes.eval.detection.algo import accumulate, calc_ap, calc_ap_mr, calc_ar, calc_tp, calc_fap, calc_far, calc_aap, calc_aar
+from nuscenes.eval.detection.algo import accumulate, calc_ap, calc_fap_mr, calc_ar, calc_tp, calc_fap, calc_far, calc_aap, calc_aar
 from nuscenes.eval.detection.constants import TP_METRICS
 from nuscenes.eval.detection.data_classes import DetectionConfig, DetectionMetrics, DetectionBox, DetectionMetricDataList, DetectionMetricData
 from pyquaternion import Quaternion
@@ -35,6 +35,21 @@ def box_center(boxes):
 def box_scores(boxes):
     box = np.array([box.forecast_score for box in boxes]) 
     return box
+
+def window(iterable, size):
+    iters = tee(iterable, size)
+    for i in range(1, size):
+        for each in iters[i:]:
+            next(each, None)
+
+    return zip(*iters)
+
+def get_time(nusc, src_token, dst_token):
+    time_last = 1e-6 * nusc.get('sample', src_token)["timestamp"]
+    time_first = 1e-6 * nusc.get('sample', dst_token)["timestamp"]
+    time_diff = time_first - time_last
+
+    return time_diff 
 
 def distance_matrix(A, B, squared=False):
     M = A.shape[0]
@@ -65,12 +80,23 @@ def center_distance(gt_box: EvalBox, pred_box: EvalBox) -> float:
 
 def trajectory(nusc, box: DetectionBox, timesteps=7) -> float:
     target = box.forecast_boxes[-1]
-    static_forecast = box.forecast_boxes[0]
+    time = [get_time(nusc, token[0], token[1]) for token in window([b.sample_token for b in box.forecast_boxes], 2)]
+
+    static_forecast = deepcopy(box.forecast_boxes[0])
+
+    linear_forecast = deepcopy(box.forecast_boxes[0])
+    vel = linear_forecast.velocity[:2]
+    disp = np.sum(list(map(lambda x: np.array(list(vel) + [0]) * x, time)), axis=0)
+    linear_forecast.translation = linear_forecast.translation + disp
     
-    if center_distance(target, static_forecast) < max(static_forecast.size[0], static_forecast.size[1]):
+    if center_distance(target, static_forecast) < max(target.size[0], target.size[1]):
         return "static"
+
+    elif center_distance(target, linear_forecast) < max(target.size[0], target.size[1]):
+        return "linear"
+
     else:
-        return "moving"
+        return "nonlinear"
 
 
 def serialize_box(box):
@@ -114,7 +140,8 @@ class DetectionEval:
                  static_only: bool = False,
                  cohort_analysis: bool = False,
                  topK: int = 1,
-                 root: str = "/ssd0/nperi/nuScenes"):
+                 root: str = "/ssd0/nperi/nuScenes", 
+                 association_oracle=False):
         """
         Initialize a DetectionEval object.
         :param nusc: A NuScenes object.
@@ -135,6 +162,8 @@ class DetectionEval:
         self.static_only = static_only
         self.cohort_analysis = cohort_analysis
         self.topK = topK
+        self.association_oracle = association_oracle
+
         # Check result file exists.
         assert os.path.exists(result_path), 'Error: The result file does not exist!'
 
@@ -279,7 +308,7 @@ class DetectionEval:
         metric_data_list = DetectionMetricDataList()
         for class_name in tqdm(self.cfg.class_names):
             for dist_th in self.cfg.dist_ths:
-                md = accumulate(self.nusc, self.gt_boxes, self.pred_boxes, class_name, self.cfg.dist_fcn_callable, dist_th, self.forecast, self.cohort_analysis)
+                md = accumulate(self.nusc, self.gt_boxes, self.pred_boxes, class_name, self.cfg.dist_fcn_callable, dist_th, self.forecast, self.cohort_analysis, self.association_oracle)
                 metric_data_list.set(class_name, dist_th, md)
 
         # -----------------------------------
@@ -293,7 +322,7 @@ class DetectionEval:
             for dist_th in self.cfg.dist_ths:
                 metric_data = metric_data_list[(class_name, dist_th)]
                 ap = calc_ap(deepcopy(metric_data), self.cfg.min_recall, self.cfg.min_precision)
-                ap_mr = calc_ap_mr(deepcopy(metric_data), self.cfg.min_recall, self.cfg.min_precision)
+                fap_mr = calc_fap_mr(deepcopy(metric_data), self.cfg.min_recall, self.cfg.min_precision)
 
                 ar = calc_ar(deepcopy(metric_data))
 
@@ -304,7 +333,8 @@ class DetectionEval:
                 aar = calc_aar(deepcopy(metric_data))
 
                 metrics.add_label_ap(class_name, dist_th, ap)
-                metrics.add_label_ap_mr(class_name, dist_th, ap_mr)
+                metrics.add_label_fap_mr(class_name, dist_th, fap_mr)
+
                 metrics.add_label_ar(class_name, dist_th, ar)
                 metrics.add_label_fap(class_name, dist_th, fap)
                 metrics.add_label_far(class_name, dist_th, far)
@@ -404,7 +434,7 @@ class DetectionEval:
 
         # Print high-level metrics.
         print('mAP: %.4f' % (metrics_summary['mean_ap']))
-        print('mAP_MR: %.4f' % (metrics_summary['mean_ap_mr']))
+        print('mFAP_MR: %.4f' % (metrics_summary['mean_fap_mr']))
 
         print('mAR: %.4f' % (metrics_summary['mean_ar']))
 
@@ -435,9 +465,10 @@ class DetectionEval:
         # Print per-class metrics.
         print()
         print('Per-class results:')
-        print('Object Class\tAP\tAP_MR\tAR\tFAP\tFAR\tAAP\tAAR\tATE\tASE\tAOE\tAVE\tAAE\tADE\tFDE\tMR')
+        print('Object Class\tAP\tFAP_MR\tAR\tFAP\tFAR\tAAP\tAAR\tATE\tASE\tAOE\tAVE\tAAE\tADE\tFDE\tMR')
         class_aps = metrics_summary['mean_dist_aps']
-        class_aps_mr = metrics_summary['mean_dist_aps_mr']
+        class_faps_mr = metrics_summary['mean_dist_faps_mr']
+
         class_ars = metrics_summary['mean_dist_ars']
 
         class_faps = metrics_summary['mean_dist_faps']
@@ -449,7 +480,7 @@ class DetectionEval:
         class_tps = metrics_summary['label_tp_errors']
         for class_name in class_aps.keys():
             print('%s\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f\t%.3f'
-                  % (class_name, class_aps[class_name], class_aps_mr[class_name], class_ars[class_name], class_faps[class_name], class_fars[class_name], class_aaps[class_name], class_aars[class_name],
+                  % (class_name, class_aps[class_name], class_faps_mr[class_name], class_ars[class_name], class_faps[class_name], class_fars[class_name], class_aaps[class_name], class_aars[class_name],
                      class_tps[class_name]['trans_err'],
                      class_tps[class_name]['scale_err'],
                      class_tps[class_name]['orient_err'],

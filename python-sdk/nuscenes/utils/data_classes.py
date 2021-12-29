@@ -14,6 +14,7 @@ from matplotlib.axes import Axes
 from pyquaternion import Quaternion
 
 from nuscenes.utils.geometry_utils import view_points, transform_matrix
+import matplotlib.pyplot as plt
 import pdb 
 
 from itertools import tee
@@ -665,6 +666,9 @@ class Box:
         for pt1, pt2 in window(center, 2):
             pt1, pt2 = pt1[:2], pt2[:2]
             axis.plot([pt1[0], pt2[0]], [pt1[1], pt2[1]], '{}o--'.format(colors[0]), markersize=4)
+
+        #circle = plt.Circle((center[-1][0], center[-1][1]), max(self.wlh[0] / 2, self.wlh[1] / 2), color=colors[0], fill=False)
+        #axis.add_patch(circle)
 
     def render_cv2(self,
                    im: np.ndarray,

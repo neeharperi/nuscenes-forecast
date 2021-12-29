@@ -90,7 +90,7 @@ class DetectionMetricData(MetricData):
     def __init__(self,
                  recall: np.array,
                  precision: np.array,
-                 precision_mr: np.array,
+                 precision_mr,
                  forecast_precision,
                  confidence: np.array,
                  trans_err: np.array,
@@ -274,7 +274,7 @@ class DetectionMetrics:
 
         self.cfg = cfg
         self._label_aps = defaultdict(lambda: defaultdict(float))
-        self._label_aps_mr = defaultdict(lambda: defaultdict(float))
+        self._label_faps_mr = defaultdict(lambda: defaultdict(float))
         self._label_ars = defaultdict(lambda: defaultdict(float))
         self._label_faps = defaultdict(lambda: defaultdict(float))
         self._label_fars = defaultdict(lambda: defaultdict(float))
@@ -289,11 +289,11 @@ class DetectionMetrics:
     def get_label_ap(self, detection_name: str, dist_th: float) -> float:
         return self._label_aps[detection_name][dist_th]
 
-    def add_label_ap_mr(self, detection_name: str, dist_th: float, ap_mr: float) -> None:
-        self._label_aps_mr[detection_name][dist_th] = ap_mr
+    def add_label_fap_mr(self, detection_name: str, dist_th: float, fap_mr: float) -> None:
+        self._label_faps_mr[detection_name][dist_th] = fap_mr
 
-    def get_label_ap_mr(self, detection_name: str, dist_th: float) -> float:
-        return self._label_aps_mr[detection_name][dist_th]
+    def get_label_fap_mr(self, detection_name: str, dist_th: float) -> float:
+        return self._label_faps_mr[detection_name][dist_th]
 
     def add_label_ar(self, detection_name: str, dist_th: float, ar: float) -> None:
         self._label_ars[detection_name][dist_th] = ar
@@ -340,10 +340,11 @@ class DetectionMetrics:
         return {class_name: np.mean(list(d.values())) for class_name, d in self._label_aps.items()}
 
     @property
-    def mean_dist_aps_mr(self) -> Dict[str, float]:
+    def mean_dist_faps_mr(self) -> Dict[str, float]:
         """ Calculates the mean over distance thresholds for each label. """
 
-        return {class_name: np.mean(list(d.values())) for class_name, d in self._label_aps_mr.items()}
+        return {class_name: np.mean(list(d.values())) for class_name, d in self._label_faps_mr.items()}
+    
     @property
     def mean_dist_ars(self) -> Dict[str, float]:
         """ Calculates the mean over distance thresholds for each label. """
@@ -376,9 +377,9 @@ class DetectionMetrics:
         return float(np.mean(list(self.mean_dist_aps.values())))
 
     @property
-    def mean_ap_mr(self) -> float:
+    def mean_fap_mr(self) -> float:
         """ Calculates the mean AP by averaging over distance thresholds and classes. """
-        return float(np.mean(list(self.mean_dist_aps_mr.values())))
+        return float(np.mean(list(self.mean_dist_faps_mr.values())))
 
     @property
     def mean_ar(self) -> float:
@@ -453,9 +454,9 @@ class DetectionMetrics:
             'label_aps': self._label_aps,
             'mean_dist_aps': self.mean_dist_aps,
             'mean_ap': self.mean_ap,
-            'label_aps_mr': self._label_aps_mr,
-            'mean_dist_aps_mr': self.mean_dist_aps_mr,
-            'mean_ap_mr': self.mean_ap_mr,
+            'label_faps_mr': self._label_faps_mr,
+            'mean_dist_faps_mr': self.mean_dist_faps_mr,
+            'mean_fap_mr': self.mean_fap_mr,
             'label_ars': self._label_ars,
             'mean_dist_ars': self.mean_dist_ars,
             'mean_ar': self.mean_ar,
@@ -492,9 +493,9 @@ class DetectionMetrics:
             for dist_th, ap in label_aps.items():
                 metrics.add_label_ap(detection_name=detection_name, dist_th=float(dist_th), ap=float(ap))
 
-        for detection_name, label_aps_mr in content['label_aps_mr'].items():
-            for dist_th, ap_mr in label_aps_mr.items():
-                metrics.add_label_ap_mr(detection_name=detection_name, dist_th=float(dist_th), ap_mr=float(ap_mr))
+        for detection_name, label_faps_mr in content['label_faps_mr'].items():
+            for dist_th, fap_mr in label_faps_mr.items():
+                metrics.add_label_fap_mr(detection_name=detection_name, dist_th=float(dist_th), fap_mr=float(fap_mr))
 
         for detection_name, label_ars in content['label_ars'].items():
             for dist_th, ar in label_ars.items():
@@ -525,7 +526,7 @@ class DetectionMetrics:
     def __eq__(self, other):
         eq = True
         eq = eq and self._label_aps == other._label_aps
-        eq = eq and self._label_aps_mr == other._label_aps_mr
+        eq = eq and self._label_faps_mr == other._label_faps_mr
         eq = eq and self._label_ars == other._label_ars
         eq = eq and self._label_faps == other._label_faps
         eq = eq and self._label_fars == other._label_fars
