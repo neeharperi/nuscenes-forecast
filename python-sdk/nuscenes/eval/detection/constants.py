@@ -15,6 +15,7 @@ def getDetectionNames(cohort_analysis=False):
         #'nonlinear_car', 'nonlinear_truck', 'nonlinear_bus', 'nonlinear_trailer', 'nonlinear_construction_vehicle', 'nonlinear_pedestrian', 'nonlinear_motorcycle', 'nonlinear_bicycle', 'nonlinear_traffic_cone', 'nonlinear_barrier']
 
         DETECTION_NAMES = ['static_car', 'linear_car', 'nonlinear_car']
+        #DETECTION_NAMES = ['static_car', 'moving_car']
         #DETECTION_NAMES = ['static_car', 'static_pedestrian', 'linear_car', 'linear_pedestrian', 'nonlinear_car', 'nonlinear_pedestrian']
         #DETECTION_NAMES = ['static_car', 'static_pedestrian', 'moving_car', 'moving_pedestrian']
 

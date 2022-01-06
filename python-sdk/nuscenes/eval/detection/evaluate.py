@@ -215,10 +215,7 @@ class DetectionEval:
                 static_boxes = []
                 for boxes in self.pred_boxes.boxes[sample_token]:
                     if trajectory(nusc, boxes, forecast) != "static":
-                        translation = boxes.translation
-
-                        for box in boxes.forecast_boxes:
-                            boxes.translation = translation
+                        continue
                     
                     static_boxes.append(boxes)
 
@@ -290,7 +287,14 @@ class DetectionEval:
         for sample_token in self.gt_boxes.boxes.keys():
             self.pred_boxes.boxes[sample_token] = pred_boxes_topK[sample_token]
 
+        ########################################################################
         self.sample_tokens = self.gt_boxes.sample_tokens
+
+        for sample_token in self.sample_tokens:
+            boxes = [box for box in self.pred_boxes.boxes[sample_token]]
+            sorted_boxes = sorted(boxes, key= lambda x : x.detection_score, reverse=True)
+
+            self.pred_boxes.boxes[sample_token] = sorted_boxes[:self.cfg.max_boxes_per_sample]
 
 
     def evaluate(self) -> Tuple[DetectionMetrics, DetectionMetricDataList]:

@@ -103,9 +103,9 @@ def load_prediction(result_path: str, max_boxes_per_sample: int, box_cls, verbos
               .format(result_path, len(all_results.sample_tokens)))
 
     # Check that each sample has no more than x predicted boxes.
-    for sample_token in all_results.sample_tokens:
-        assert len(all_results.boxes[sample_token]) <= max_boxes_per_sample, \
-            "Error: Only <= %d boxes per sample allowed!" % max_boxes_per_sample
+    #for sample_token in all_results.sample_tokens:
+    #    assert len(all_results.boxes[sample_token]) <= max_boxes_per_sample, \
+    #        "Error: Only <= %d boxes per sample allowed!" % max_boxes_per_sample
 
     return all_results, meta
 

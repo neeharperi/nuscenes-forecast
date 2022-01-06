@@ -35,6 +35,35 @@ def window(iterable, size):
 
     return zip(*iters)
 
+def z_offset(points, 
+                  meters_max=45,
+                  pixels_per_meter=2,
+                  hist_max_per_pixel=50,
+                  zbins=np.array([-3.,   0.0, 1., 2.,  3., 10.]),
+                  hist_normalize=True):
+    assert(points.shape[-1] >= 3)
+    assert(points.shape[0] > points.shape[1])
+    meters_total = meters_max * 2
+    pixels_total = meters_total * pixels_per_meter
+    xbins = np.linspace(-meters_max, meters_max, pixels_total + 1, endpoint=True)
+    ybins = xbins
+    # The first left bin edge must match the last right bin edge.
+    assert(np.isclose(xbins[0], -1 * xbins[-1]))
+    assert(np.isclose(ybins[0], -1 * ybins[-1]))
+    
+    hist = np.histogramdd(points[..., :3], bins=(xbins, ybins, zbins), normed=False)[0]
+
+    # Clip histogram 
+    hist[hist > hist_max_per_pixel] = hist_max_per_pixel
+
+    # Normalize histogram by the maximum number of points in a bin we care about.
+    if hist_normalize:
+        overhead_splat = hist / hist_max_per_pixel
+    else:
+        overhead_splat = hist
+
+    return overhead_splat, xbins, ybins, zbins
+
 def visualize_sample(nusc: NuScenes,
                      sample_token: str,
                      gt_boxes: EvalBoxes,
@@ -210,7 +239,7 @@ def visualize_sample_forecast(nusc: NuScenes,
         center_est.append(cntr)
 
     # Get point cloud in lidar frame.
-    pc, _ = LidarPointCloud.from_file_multisweep(nusc, sample_rec, 'LIDAR_TOP', 'LIDAR_TOP', nsweeps=10)
+    pc, _ = LidarPointCloud.from_file_multisweep(nusc, sample_rec, 'LIDAR_TOP', 'LIDAR_TOP', nsweeps=20)
 
     # Init axes.
     _, ax = plt.subplots(1, 1, figsize=(9, 9))
@@ -420,12 +449,20 @@ def summary_plot(md_list: DetectionMetricDataList,
     _, axes = plt.subplots(nrows=n_classes, ncols=2, figsize=(15, 5 * n_classes))
     for ind, detection_name in enumerate(getDetectionNames(cohort_analysis)):
         title1, title2 = ('Recall vs Precision', 'Recall vs Error') if ind == 0 else (None, None)
-
-        ax1 = setup_axis(xlim=1, ylim=1, title=title1, min_precision=min_precision,
+        try:
+            ax1 = setup_axis(xlim=1, ylim=1, title=title1, min_precision=min_precision,
+                         min_recall=min_recall, ax=axes[ind])
+        except:
+            ax1 = setup_axis(xlim=1, ylim=1, title=title1, min_precision=min_precision,
                          min_recall=min_recall, ax=axes[ind, 0])
+
         ax1.set_ylabel('{} \n \n Precision'.format(PRETTY_DETECTION_NAMES[detection_name]), size=20)
 
-        ax2 = setup_axis(xlim=1, title=title2, min_recall=min_recall, ax=axes[ind, 1])
+        try:
+            ax2 = setup_axis(xlim=1, title=title2, min_recall=min_recall, ax=axes[ind])
+        except:
+            ax2 = setup_axis(xlim=1, title=title2, min_recall=min_recall, ax=axes[ind, 1])
+
         if ind == n_classes - 1:
             ax1.set_xlabel('Recall', size=20)
             ax2.set_xlabel('Recall', size=20)
