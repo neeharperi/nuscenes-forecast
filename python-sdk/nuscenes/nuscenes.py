@@ -471,6 +471,8 @@ class NuScenes:
     def render_egoposes_on_map(self, log_location: str, scene_tokens: List = None, out_path: str = None) -> None:
         self.explorer.render_egoposes_on_map(log_location, scene_tokens, out_path=out_path)
 
+    def get_ego_centric_map(self, sample_data_token: str, axes_limit: float = 45):
+        return self.explorer.get_ego_centric_map(sample_data_token, axes_limit)
 
 class NuScenesExplorer:
     """ Helper class to list and visualize NuScenes data. These are meant to serve as tutorials and templates for
@@ -788,6 +790,56 @@ class NuScenesExplorer:
         ego_centric_map[ego_centric_map == map_mask.background] = 255
         ax.imshow(ego_centric_map, extent=[-axes_limit, axes_limit, -axes_limit, axes_limit],
                   cmap='gray', vmin=0, vmax=255)
+
+    def get_ego_centric_map(self,
+                        sample_data_token: str,
+                        axes_limit: float = 54):
+        """
+        Render map centered around the associated ego pose.
+        :param sample_data_token: Sample_data token.
+        :param axes_limit: Axes limit measured in meters.
+        :param ax: Axes onto which to render.
+        """
+
+        def crop_image(image: np.array,
+                       x_px: int,
+                       y_px: int,
+                       axes_limit_px: int) -> np.array:
+            x_min = int(x_px - axes_limit_px)
+            x_max = int(x_px + axes_limit_px)
+            y_min = int(y_px - axes_limit_px)
+            y_max = int(y_px + axes_limit_px)
+
+            cropped_image = image[y_min:y_max, x_min:x_max]
+
+            return cropped_image
+
+        # Get data.
+        sd_record = self.nusc.get('sample_data', sample_data_token)
+        sample = self.nusc.get('sample', sd_record['sample_token'])
+        scene = self.nusc.get('scene', sample['scene_token'])
+        log = self.nusc.get('log', scene['log_token'])
+        map_ = self.nusc.get('map', log['map_token'])
+        map_mask = map_['mask']
+        pose = self.nusc.get('ego_pose', sd_record['ego_pose_token'])
+
+        # Retrieve and crop mask.
+        pixel_coords = map_mask.to_pixel_coords(pose['translation'][0], pose['translation'][1])
+        scaled_limit_px = int(axes_limit * (1.0 / map_mask.resolution))
+        mask_raster = map_mask.mask()
+        cropped = crop_image(mask_raster, pixel_coords[0], pixel_coords[1], int(scaled_limit_px * math.sqrt(2)))
+
+        # Rotate image.
+        ypr_rad = Quaternion(pose['rotation']).yaw_pitch_roll
+        yaw_deg = -math.degrees(ypr_rad[0])
+        rotated_cropped = np.array(Image.fromarray(cropped).rotate(yaw_deg))
+
+        # Cop image.
+        ego_centric_map = crop_image(rotated_cropped, rotated_cropped.shape[1] / 2,
+                                     rotated_cropped.shape[0] / 2,
+                                     scaled_limit_px)
+
+        return ego_centric_map
 
     def render_sample_data(self,
                            sample_data_token: str,

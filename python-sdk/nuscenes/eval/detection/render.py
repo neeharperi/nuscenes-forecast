@@ -154,13 +154,12 @@ def visualize_sample_forecast(nusc: NuScenes,
                               sample_token: str,
                               boxes_gt_global,
                               boxes_est_global,
+                              color,
                               nsweeps: int = 1,
                               conf_th: float = 0.15,
                               eval_range: float = 50,
                               verbose: bool = True,
-                              savepath: str = None,
-                              classname = [],
-                              dets_only = False) -> None:
+                              savepath: str = None) -> None:
     """
     Visualizes a sample from BEV with annotations and detection results.
     :param nusc: NuScenes object.
@@ -255,32 +254,17 @@ def visualize_sample_forecast(nusc: NuScenes,
 
     # Show GT boxes.
     for box, center in zip(boxes_gt, center_gt):
-        if box.name not in classname:
-            continue
-
         box.render_forecast(ax, view=np.eye(4), colors=('g', 'g', 'g'), linewidth=2, center=center)
 
     # Show EST boxes.
-    for box, center in zip(boxes_est, center_est):
-        if box.name not in classname and not dets_only: 
-            continue
+    for box, center, clr in zip(boxes_est, center_est, color):
 
+        if "r" in clr:
+            continue 
         # Show only predictions with a high score.
         assert not np.isnan(box.score), 'Error: Box score cannot be NaN!'
         if box.score >= conf_th:
             # Move box to ego vehicle coord system.
-
-            if dets_only:
-                if box.name in [0]:
-                    clr = ('b', 'b', 'b')
-                #elif box.name in [2]:
-                #    clr = ('c', 'c', 'c')
-                elif box.name in [4]:
-                    clr = ('m', 'm', 'm')
-                else:
-                    continue
-            else:
-                clr = ('b', 'b', 'b')
             box.render_forecast(ax, view=np.eye(4), colors=clr, linewidth=1, center=center)
 
     # Limit visible range.

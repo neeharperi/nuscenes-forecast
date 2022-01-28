@@ -10,11 +10,9 @@ from nuscenes.eval.common.data_classes import EvalBoxes, EvalBox
 from nuscenes.eval.common.utils import center_distance, scale_iou, yaw_diff, velocity_l2, attr_acc, cummean, ade, fde, miss_rate
 from nuscenes.eval.detection.data_classes import DetectionConfig, DetectionMetrics, DetectionBox, DetectionMetricDataList, DetectionMetricData
 
+from tqdm import tqdm 
 import copy
 import pdb
-
-#FIX: AP + MR -> Only Evaluate Detection Match at T=0 and Forecast Match T=N
-#ADD: Assocation Oracle -> AP_F @ 2 * Detection Threshold
 
 def match(gt, pred, class_name):
     if gt == class_name:
@@ -25,7 +23,15 @@ def match(gt, pred, class_name):
 
     return False 
 
-forecast_match = {0.5: 1, 1: 2, 2: 4, 4: 8}
+match_idx = {0.5: 0, 1: 1, 2 : 2, 4: 3}
+forecast_match = [[0.5, 1, 2, 4],
+                  [0.58, 1.17, 2.53, 4.67],
+                  [0.66, 1.33, 2.67, 5.33],
+                  [0.75, 1.5, 3, 6],
+                  [0.83, 1.67, 3.33, 6.67],
+                  [0.92, 1.83, 3.67, 7.33],
+                  [1, 2, 4, 8]
+                  ]
 
 def accumulate(nusc, 
                gt_boxes: EvalBoxes,
@@ -34,6 +40,7 @@ def accumulate(nusc,
                dist_fcn: Callable,
                dist_th: float,
                forecast: int,
+               K : int,
                cohort_analysis: bool = False,
                oracle: bool = False,
                verbose: bool = False) -> DetectionMetricData:
@@ -81,6 +88,7 @@ def accumulate(nusc,
     # Sort by confidence.
     sortind = [i for (v, i) in sorted((v, i) for (i, v) in enumerate(pred_confs))][::-1]
 
+    midx = match_idx[dist_th]
     # Do the actual matching.
     tp = []  # Accumulator of true positives.
     fp = []  # Accumulator of false positives.
@@ -127,23 +135,37 @@ def accumulate(nusc,
         taken = set()  # Initially no gt bounding box is matched.
         for ind in sortind:
             pred_box = pred_boxes_list[ind].forecast_boxes[i]
-        
-            min_dist = np.inf
+
+            if K == 0 and i == 0:
+                min_dist = forecast * [np.inf]
+            else:
+                min_dist = np.inf
+            
             match_gt_idx = None
 
             for gt_idx, gt_box in enumerate(gt_boxes[pred_boxes_list[ind].sample_token]):
 
                 # Find closest match among ground truth boxes
                 if classname in gt_box.detection_name and not (pred_boxes_list[ind].sample_token, gt_idx) in taken:
-                    this_distance = dist_fcn(gt_box.forecast_boxes[i], pred_box)
-                    if this_distance < min_dist:
-                        min_dist = this_distance
-                        match_gt_idx = gt_idx
+                    if K == 0 and i == 0:
+                        this_distance = [dist_fcn(gt_box.forecast_boxes[t], pred_boxes_list[ind].forecast_boxes[t]) for t in range(forecast)]
+                        if np.sum(this_distance) < np.sum(min_dist):
+                            min_dist = this_distance
+                            match_gt_idx = gt_idx
+                    else:
+                        this_distance = dist_fcn(gt_box.forecast_boxes[i], pred_box)
+                    
+                        if this_distance < min_dist:
+                            min_dist = this_distance
+                            match_gt_idx = gt_idx
 
             # If the closest match is close enough according to threshold we have a match!
 
             if oracle:
-                is_match = min_dist < forecast_distance[dist_th]
+                is_match = min_dist < forecast_match[-1][midx]
+
+            elif K == 0 and i == 0:
+                is_match = all([min_dist[t] < forecast_match[t][midx] for t in range(forecast)])
 
             else:
                 is_match = min_dist < dist_th
@@ -160,8 +182,7 @@ def accumulate(nusc,
                 pred_forecast_name[i].append("ignore")
 
                 if i == 0:
-
-                    mr = miss_rate(nusc, copy.deepcopy(gt_box_match.forecast_boxes[-1]), copy.deepcopy(pred_boxes_list[ind].forecast_boxes[-1]), forecast_match[dist_th])
+                    mr = miss_rate(nusc, copy.deepcopy(gt_box_match.forecast_boxes[-1]), copy.deepcopy(pred_boxes_list[ind].forecast_boxes[-1]), forecast_match[-1][midx])
 
                     if mr == 0:
                         tp_mr.append(1)
