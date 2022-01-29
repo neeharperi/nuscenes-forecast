@@ -24,7 +24,7 @@ def match(gt, pred, class_name):
     return False 
 
 match_idx = {0.5: 0, 1: 1, 2 : 2, 4: 3}
-forecast_match = [[0.5, 1, 2, 4],
+car_forecast_match = [[0.5, 1, 2, 4],
                   [0.58, 1.17, 2.53, 4.67],
                   [0.66, 1.33, 2.67, 5.33],
                   [0.75, 1.5, 3, 6],
@@ -32,7 +32,14 @@ forecast_match = [[0.5, 1, 2, 4],
                   [0.92, 1.83, 3.67, 7.33],
                   [1, 2, 4, 8]
                   ]
-
+pedestrian_forecast_match = [[0.25, .5, 1, 2],
+                      [0.29, 0.58, 1.17, 2.33],
+                      [0.33, 0.67, 1.33, 2.67],
+                      [0.38, 0.75, 1.5, 3],
+                      [0.42, 0.83, 1.67, 3.33],
+                      [0.46, 0.92, 1.83, 3.67],
+                      [0.5, 1, 2, 4]
+                    ]
 def accumulate(nusc, 
                gt_boxes: EvalBoxes,
                pred_boxes: EvalBoxes,
@@ -73,6 +80,12 @@ def accumulate(nusc,
         classname = "car" if "car" in class_name else "pedestrian"
     else:
         classname = class_name
+
+
+    if "car" in classname:
+        forecast_match = car_forecast_match
+    else:
+        forecast_match = pedestrian_forecast_match
 
     pred_boxes_list = [box for box in pred_boxes.all if classname in box.detection_name]
     
