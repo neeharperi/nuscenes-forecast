@@ -78,7 +78,7 @@ def center_distance(gt_box: EvalBox, pred_box: EvalBox) -> float:
     """
     return np.linalg.norm(np.array(pred_box.translation[:2]) - np.array(gt_box.translation[:2]))
 
-def trajectory(nusc, box: DetectionBox, timesteps=7, past=False) -> float:
+def trajectory(nusc, box: DetectionBox, timesteps=7, past=False, classname="car") -> float:
     target = box.forecast_boxes[-1]
     time = [get_time(nusc, token[0], token[1]) for token in window([b.sample_token for b in box.forecast_boxes], 2)]
 
@@ -94,10 +94,17 @@ def trajectory(nusc, box: DetectionBox, timesteps=7, past=False) -> float:
     else:
         linear_forecast.translation = linear_forecast.translation + disp
     
-    if center_distance(target, static_forecast) < max(target.size[0], target.size[1]):
+
+    if classname == "car":
+        size = max(target.size[0], target.size[1])
+    else:
+        size = max(target.size[0], target.size[1])
+
+
+    if center_distance(target, static_forecast) < size:
         return "static"
 
-    elif center_distance(target, linear_forecast) < max(target.size[0], target.size[1]):
+    elif center_distance(target, linear_forecast) < size:
         return "linear"
 
     else:
@@ -148,7 +155,8 @@ class DetectionEval:
                  root: str = "/ssd0/nperi/nuScenes", 
                  association_oracle=False,
                  past=False,
-                 det_eval=False):
+                 det_eval=False,
+                 classname="car"):
         """
         Initialize a DetectionEval object.
         :param nusc: A NuScenes object.
@@ -172,6 +180,7 @@ class DetectionEval:
         self.association_oracle = association_oracle
         self.past = past
         self.det_eval = det_eval
+        self.classname = classname
 
         # Check result file exists.
         assert os.path.exists(result_path), 'Error: The result file does not exist!'
@@ -226,12 +235,12 @@ class DetectionEval:
         if self.cohort_analysis:
             for sample_token in self.pred_boxes.boxes.keys():
                 for box in self.pred_boxes.boxes[sample_token]:
-                    label = trajectory(nusc, box, self.forecast, self.past)
+                    label = trajectory(nusc, box, self.forecast, self.past, self.classname)
                     box.detection_name = label + "_" + box.detection_name
 
             for sample_token in self.gt_boxes.boxes.keys():
                 for box in self.gt_boxes.boxes[sample_token]:
-                    label = trajectory(nusc, box, self.forecast, self.past)
+                    label = trajectory(nusc, box, self.forecast, self.past, self.classname)
                     box.detection_name = label + "_" + box.detection_name
 
         if self.static_only:
