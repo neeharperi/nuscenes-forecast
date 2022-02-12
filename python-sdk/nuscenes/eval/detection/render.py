@@ -156,7 +156,7 @@ def visualize_sample_forecast(nusc: NuScenes,
                               boxes_est_global,
                               color,
                               nsweeps: int = 1,
-                              conf_th: float = 0.15,
+                              conf_th: float = 0.35,
                               eval_range: float = 50,
                               verbose: bool = True,
                               savepath: str = None) -> None:
@@ -259,8 +259,6 @@ def visualize_sample_forecast(nusc: NuScenes,
     # Show EST boxes.
     for box, center, clr in zip(boxes_est, center_est, color):
 
-        if "r" in clr:
-            continue 
         # Show only predictions with a high score.
         assert not np.isnan(box.score), 'Error: Box score cannot be NaN!'
         if box.score >= conf_th:

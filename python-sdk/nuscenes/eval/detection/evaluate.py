@@ -23,7 +23,10 @@ from pyquaternion import Quaternion
 import pickle
 from copy import deepcopy
 from nuscenes.eval.detection.render import summary_plot, class_pr_curve, class_tp_curve, dist_pr_curve, visualize_sample
+import torch 
 from tqdm import tqdm 
+from nuscenes.utils.geometry_utils import view_points
+from shapely.geometry import Polygon
 
 import pdb
 from itertools import tee 
@@ -69,6 +72,20 @@ def distance_matrix(A, B, squared=False):
 
     return D_squared
 
+def box2d_iou(boxA, boxB): 
+    A = Box(center=boxA.translation, size=boxA.size, orientation=Quaternion(boxA.rotation))
+    B = Box(center=boxB.translation, size=boxB.size, orientation=Quaternion(boxB.rotation))
+
+    cornersA = view_points(A.corners(), np.eye(4), normalize=False)[:2, :].T
+    cornersB = view_points(B.corners(), np.eye(4), normalize=False)[:2, :].T
+
+    polyA = Polygon([(cornersA[0][0], cornersA[0][1]), (cornersA[1][0], cornersA[1][1]), (cornersA[5][0], cornersA[5][1]), (cornersA[4][0], cornersA[4][1])])
+    polyB = Polygon([(cornersB[0][0], cornersB[0][1]), (cornersB[1][0], cornersB[1][1]), (cornersB[5][0], cornersB[5][1]), (cornersB[4][0], cornersB[4][1])])
+
+    iou = polyA.intersection(polyB).area / polyA.union(polyB).area
+
+    return iou 
+
 def center_distance(gt_box: EvalBox, pred_box: EvalBox) -> float:
     """
     L2 distance between the box centers (xy only).
@@ -78,37 +95,28 @@ def center_distance(gt_box: EvalBox, pred_box: EvalBox) -> float:
     """
     return np.linalg.norm(np.array(pred_box.translation[:2]) - np.array(gt_box.translation[:2]))
 
-def trajectory(nusc, box: DetectionBox, timesteps=7, past=False, classname="car") -> float:
+def trajectory(nusc, box: DetectionBox, past=False) -> float:
     target = box.forecast_boxes[-1]
     time = [get_time(nusc, token[0], token[1]) for token in window([b.sample_token for b in box.forecast_boxes], 2)]
 
     static_forecast = deepcopy(box.forecast_boxes[0])
 
-    linear_forecast = deepcopy(box.forecast_boxes[0])
-    vel = linear_forecast.velocity[:2]
-    disp = np.sum(list(map(lambda x: np.array(list(vel) + [0]) * x, time)), axis=0)
-
-    if past:
-        linear_forecast.translation = linear_forecast.translation - disp
-
-    else:
-        linear_forecast.translation = linear_forecast.translation + disp
-    
-
-    if classname == "car":
-        size = max(target.size[0], target.size[1])
-    else:
-        size = max(target.size[0], target.size[1])
-
-
-    if center_distance(target, static_forecast) < size:
+    if box2d_iou(target, static_forecast) > 0:
         return "static"
 
-    elif center_distance(target, linear_forecast) < size:
+    linear_forecast = deepcopy(box.forecast_boxes[0])
+    vel = linear_forecast.velocity[:2]
+
+    if past:
+        vel = -1 * vel
+
+    disp = np.sum(list(map(lambda x: np.array(list(vel) + [0]) * x, time)), axis=0)
+    linear_forecast.translation = linear_forecast.translation + disp
+    
+    if box2d_iou(target, linear_forecast) > 0:
         return "linear"
 
-    else:
-        return "nonlinear"
+    return "nonlinear"
 
 
 def serialize_box(box):
@@ -156,7 +164,7 @@ class DetectionEval:
                  association_oracle=False,
                  past=False,
                  det_eval=False,
-                 classname="car"):
+                 nogroup=False):
         """
         Initialize a DetectionEval object.
         :param nusc: A NuScenes object.
@@ -180,7 +188,7 @@ class DetectionEval:
         self.association_oracle = association_oracle
         self.past = past
         self.det_eval = det_eval
-        self.classname = classname
+        self.nogroup = nogroup
 
         # Check result file exists.
         assert os.path.exists(result_path), 'Error: The result file does not exist!'
@@ -235,13 +243,23 @@ class DetectionEval:
         if self.cohort_analysis:
             for sample_token in self.pred_boxes.boxes.keys():
                 for box in self.pred_boxes.boxes[sample_token]:
-                    label = trajectory(nusc, box, self.forecast, self.past, self.classname)
-                    box.detection_name = label + "_" + box.detection_name
+                    label = trajectory(nusc, box, self.past)
+                    name = label + "_" + box.detection_name
+
+                    box.detection_name = name
+
+                    for i in range(self.forecast):
+                        box.forecast_boxes[i].detection_name = name
 
             for sample_token in self.gt_boxes.boxes.keys():
                 for box in self.gt_boxes.boxes[sample_token]:
-                    label = trajectory(nusc, box, self.forecast, self.past, self.classname)
-                    box.detection_name = label + "_" + box.detection_name
+                    label = trajectory(nusc, box, self.past)
+                    name = label + "_" + box.detection_name
+
+                    box.detection_name = name
+
+                    for i in range(self.forecast):
+                        box.forecast_boxes[i].detection_name = name
 
         if self.static_only:
             for sample_token in self.pred_boxes.boxes.keys():
@@ -280,12 +298,13 @@ class DetectionEval:
                     groups = set([box.forecast_id for box in pred_boxes])
 
                     for group in groups:
+                        boxes = [box for box in pred_boxes if box.forecast_id == group]
+
                         try:
-                            boxes = [box for box in pred_boxes if box.forecast_id == group]
                             scores = box_scores(boxes)
                             boxes = [b for _, b in sorted(zip(scores, boxes))][:topK]
                         except:
-                            boxes = [box for box in pred_boxes if box.forecast_id == group][:topK] 
+                            boxes = boxes[:topK] 
                         
                         if len(boxes) == 1:
                             pred_boxes_topK[sample_token] += boxes
@@ -324,7 +343,7 @@ class DetectionEval:
             for sample_token in self.gt_boxes.boxes.keys():
                 for box in self.pred_boxes.boxes[sample_token]:
                     box.detection_score = box.forecast_score
-
+        
         ########################################################################
         self.sample_tokens = self.gt_boxes.sample_tokens
 

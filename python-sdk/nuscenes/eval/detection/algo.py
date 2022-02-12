@@ -98,7 +98,6 @@ def accumulate(nusc,
         forecast_match = pedestrian_forecast_match
 
     pred_boxes_list = [box for box in pred_boxes.all if classname in box.detection_name]
-    
     pred_confs = [box.detection_score for box in pred_boxes_list]
 
     if npos == 0:

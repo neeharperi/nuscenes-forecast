@@ -638,34 +638,42 @@ class Box:
             back and sides.
         :param linewidth: Width in pixel of the box sides.
         """
+
+        if "r" in colors:
+            alpha = 0.05
+        elif "c" in colors:
+            alpha = 0.25
+        else:
+            alpha = 1
+
         corners = view_points(self.corners(), view, normalize=normalize)[:2, :]
 
-        def draw_rect(selected_corners, color):
+        def draw_rect(selected_corners, color, alpha):
             prev = selected_corners[-1]
             for corner in selected_corners:
-                axis.plot([prev[0], corner[0]], [prev[1], corner[1]], color=color, linewidth=linewidth)
+                axis.plot([prev[0], corner[0]], [prev[1], corner[1]], color=color, linewidth=linewidth, alpha = alpha)
                 prev = corner
 
         # Draw the sides
         for i in range(4):
             axis.plot([corners.T[i][0], corners.T[i + 4][0]],
                       [corners.T[i][1], corners.T[i + 4][1]],
-                      color=colors[2], linewidth=linewidth)
+                      color=colors[2], linewidth=linewidth, alpha=alpha)
 
         # Draw front (first 4 corners) and rear (last 4 corners) rectangles(3d)/lines(2d)
-        draw_rect(corners.T[:4], colors[0])
-        draw_rect(corners.T[4:], colors[1])
+        draw_rect(corners.T[:4], colors[0], alpha)
+        draw_rect(corners.T[4:], colors[1], alpha)
 
         # Draw line indicating the front
         center_bottom_forward = np.mean(corners.T[2:4], axis=0)
         center_bottom = np.mean(corners.T[[2, 3, 7, 6]], axis=0)
         axis.plot([center_bottom[0], center_bottom_forward[0]],
                   [center_bottom[1], center_bottom_forward[1]],
-                  color=colors[0], linewidth=linewidth)
+                  color=colors[0], linewidth=linewidth, alpha=alpha)
 
         for pt1, pt2 in window(center, 2):
             pt1, pt2 = pt1[:2], pt2[:2]
-            axis.plot([pt1[0], pt2[0]], [pt1[1], pt2[1]], '{}o--'.format(colors[0]), markersize=4)
+            axis.plot([pt1[0], pt2[0]], [pt1[1], pt2[1]], '{}o--'.format(colors[0]), markersize=4, alpha=alpha)
 
         #circle = plt.Circle((center[-1][0], center[-1][1]), max(self.wlh[0] / 2, self.wlh[1] / 2), color=colors[0], fill=False)
         #axis.add_patch(circle)
