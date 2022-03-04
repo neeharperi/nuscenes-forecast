@@ -35,16 +35,15 @@ def get_time(nusc, src_token, dst_token):
 
     return time_diff 
 
-def forecast_annotation(nusc, sample_annotation, sample_token, name, attr, timesteps=7, past=False, det_eval=False):
+def forecast_annotation(nusc, sample_annotation, sample_token, name, attr, timesteps=7):
     forecast_box = []
-    sample_tokens = [s["token"] for s in nusc.sample]
+    #sample_tokens = [s["token"] for s in nusc.sample]
 
-    token = nusc.sample[sample_tokens.index(sample_token)]["data"]["LIDAR_TOP"]
-    sd_record = nusc.get("sample_data", token)
-    cs_record = nusc.get("calibrated_sensor", sd_record["calibrated_sensor_token"])
-    pose_record = nusc.get("ego_pose", sd_record["ego_pose_token"])
+    #token = nusc.sample[sample_tokens.index(sample_token)]["data"]["LIDAR_TOP"]
+    #sd_record = nusc.get("sample_data", token)
+    #cs_record = nusc.get("calibrated_sensor", sd_record["calibrated_sensor_token"])
+    #pose_record = nusc.get("ego_pose", sd_record["ego_pose_token"])
 
-    stale_trajectory = False
     for i in range(timesteps):
         box = Box(center = sample_annotation["translation"],
             size = sample_annotation["size"],
@@ -64,22 +63,11 @@ def forecast_annotation(nusc, sample_annotation, sample_token, name, attr, times
                                 }
                              )
 
-        if past:
-            next_token = sample_annotation["prev"]
-        else:
-            next_token = sample_annotation["next"]
+        
+        next_token = sample_annotation["next"]
 
         if next_token != "":
             sample_annotation = nusc.get("sample_annotation", next_token)
-        else:
-            if not det_eval:
-                stale_trajectory = True
-
-    if stale_trajectory:
-        return None
-
-    if past:
-        forecast_box = forecast_box[::-1]
         
     return forecast_box
 
@@ -115,7 +103,7 @@ def load_prediction(result_path: str, max_boxes_per_sample: int, box_cls, verbos
     return all_results, meta
 
 
-def load_gt(nusc: NuScenes, eval_split: str, box_cls, verbose: bool = False, forecast: int = 7, past: bool = False, det_eval : bool = False) -> EvalBoxes:
+def load_gt(nusc: NuScenes, eval_split: str, box_cls, verbose: bool = False, forecast: int = 7) -> EvalBoxes:
     """
     Loads ground truth boxes from DB.
     :param nusc: A NuScenes instance.
@@ -194,7 +182,7 @@ def load_gt(nusc: NuScenes, eval_split: str, box_cls, verbose: bool = False, for
                 else:
                     raise Exception('Error: GT annotations must not have more than one attribute!')
 
-                forecast_boxes = forecast_annotation(nusc, sample_annotation, sample_token, detection_name, attribute_name, forecast, past, det_eval)
+                forecast_boxes = forecast_annotation(nusc, sample_annotation, sample_token, detection_name, attribute_name, forecast)
 
                 if forecast_boxes is None:
                     continue 

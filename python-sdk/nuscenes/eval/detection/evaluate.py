@@ -95,7 +95,7 @@ def center_distance(gt_box: EvalBox, pred_box: EvalBox) -> float:
     """
     return np.linalg.norm(np.array(pred_box.translation[:2]) - np.array(gt_box.translation[:2]))
 
-def trajectory(nusc, box: DetectionBox, past=False) -> float:
+def trajectory(nusc, box: DetectionBox) -> float:
     target = box.forecast_boxes[-1]
     time = [get_time(nusc, token[0], token[1]) for token in window([b.sample_token for b in box.forecast_boxes], 2)]
 
@@ -106,9 +106,6 @@ def trajectory(nusc, box: DetectionBox, past=False) -> float:
 
     linear_forecast = deepcopy(box.forecast_boxes[0])
     vel = linear_forecast.velocity[:2]
-
-    if past:
-        vel = -1 * vel
 
     disp = np.sum(list(map(lambda x: np.array(list(vel) + [0]) * x, time)), axis=0)
     linear_forecast.translation = linear_forecast.translation + disp
@@ -162,8 +159,6 @@ class DetectionEval:
                  topK: int = 1,
                  root: str = "/ssd0/nperi/nuScenes", 
                  association_oracle=False,
-                 past=False,
-                 det_eval=False,
                  nogroup=False):
         """
         Initialize a DetectionEval object.
@@ -186,8 +181,6 @@ class DetectionEval:
         self.cohort_analysis = cohort_analysis
         self.topK = topK
         self.association_oracle = association_oracle
-        self.past = past
-        self.det_eval = det_eval
         self.nogroup = nogroup
 
         # Check result file exists.
@@ -205,27 +198,12 @@ class DetectionEval:
             print('Initializing nuScenes detection evaluation')
 
         self.pred_boxes, self.meta = load_prediction(self.result_path, self.cfg.max_boxes_per_sample, DetectionBox, verbose=verbose)
-        
-        if  self.past:
-            if os.path.isfile(root + "/gt_past.pkl"):
-                self.gt_boxes = pickle.load(open(root + "/gt_past.pkl", "rb"))
-            else:
-                self.gt_boxes = load_gt(self.nusc, self.eval_set, DetectionBox, verbose=verbose, forecast=forecast, past=past, det_eval=det_eval)
-                pickle.dump(self.gt_boxes, open(root + "/gt_past.pkl", "wb"))
 
-        elif self.det_eval:
-            if os.path.isfile(root + "/gt_det.pkl"):
-                self.gt_boxes = pickle.load(open(root + "/gt_det.pkl", "rb"))
-            else:
-                self.gt_boxes = load_gt(self.nusc, self.eval_set, DetectionBox, verbose=verbose, forecast=forecast, past=past, det_eval=det_eval)
-                pickle.dump(self.gt_boxes, open(root + "/gt_det.pkl", "wb"))
-        
+        if os.path.isfile(root + "/gt.pkl"):
+            self.gt_boxes = pickle.load(open(root + "/gt.pkl", "rb"))
         else:
-            if os.path.isfile(root + "/gt.pkl"):
-                self.gt_boxes = pickle.load(open(root + "/gt.pkl", "rb"))
-            else:
-                self.gt_boxes = load_gt(self.nusc, self.eval_set, DetectionBox, verbose=verbose, forecast=forecast, past=past, det_eval=det_eval)
-                pickle.dump(self.gt_boxes, open(root + "/gt.pkl", "wb"))
+            self.gt_boxes = load_gt(self.nusc, self.eval_set, DetectionBox, verbose=verbose, forecast=forecast)
+            pickle.dump(self.gt_boxes, open(root + "/gt.pkl", "wb"))
         
         sample_tokens = [s["token"] for s in nusc.sample]
 
@@ -243,7 +221,7 @@ class DetectionEval:
         if self.cohort_analysis:
             for sample_token in self.pred_boxes.boxes.keys():
                 for box in self.pred_boxes.boxes[sample_token]:
-                    label = trajectory(nusc, box, self.past)
+                    label = trajectory(nusc, box)
                     name = label + "_" + box.detection_name
 
                     box.detection_name = name
@@ -253,7 +231,7 @@ class DetectionEval:
 
             for sample_token in self.gt_boxes.boxes.keys():
                 for box in self.gt_boxes.boxes[sample_token]:
-                    label = trajectory(nusc, box, self.past)
+                    label = trajectory(nusc, box)
                     name = label + "_" + box.detection_name
 
                     box.detection_name = name
