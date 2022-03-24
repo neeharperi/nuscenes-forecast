@@ -277,12 +277,9 @@ class DetectionEval:
 
                     for group in groups:
                         boxes = [box for box in pred_boxes if box.forecast_id == group]
-
-                        try:
-                            scores = box_scores(boxes)
-                            boxes = [b for _, b in sorted(zip(scores, boxes))][:topK]
-                        except:
-                            boxes = boxes[:topK] 
+                        scores = box_scores(boxes)
+                        boxes = [b for _, b in sorted(zip(scores, boxes), key=lambda x: x[0])][:topK]
+                 
                         
                         if len(boxes) == 1:
                             pred_boxes_topK[sample_token] += boxes

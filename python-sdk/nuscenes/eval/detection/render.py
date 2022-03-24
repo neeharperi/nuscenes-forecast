@@ -154,6 +154,8 @@ def visualize_sample_forecast(nusc: NuScenes,
                               sample_token: str,
                               boxes_gt_global,
                               boxes_est_global,
+                              gt_trajectory,
+                              est_trajectory,
                               color,
                               nsweeps: int = 1,
                               conf_th: float = 0.35,
@@ -253,17 +255,19 @@ def visualize_sample_forecast(nusc: NuScenes,
     ax.plot(0, 0, 'x', color='black')
 
     # Show GT boxes.
-    for box, center in zip(boxes_gt, center_gt):
+    for box, center, trajectory in zip(boxes_gt, center_gt, gt_trajectory):     
         box.render_forecast(ax, view=np.eye(4), colors=('g', 'g', 'g'), linewidth=2, center=center)
 
     # Show EST boxes.
-    for box, center, clr in zip(boxes_est, center_est, color):
+    for box, center, clr, trajectory in zip(boxes_est, center_est, color, est_trajectory):
+        if "r" in clr:
+            continue 
 
         # Show only predictions with a high score.
         assert not np.isnan(box.score), 'Error: Box score cannot be NaN!'
-        if box.score >= conf_th:
-            # Move box to ego vehicle coord system.
-            box.render_forecast(ax, view=np.eye(4), colors=clr, linewidth=1, center=center)
+        
+        # Move box to ego vehicle coord system.
+        box.render_forecast(ax, view=np.eye(4), colors=clr, linewidth=1, center=center)
 
     # Limit visible range.
     axes_limit = eval_range + 3  # Slightly bigger to include boxes that extend beyond the range.
