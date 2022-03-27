@@ -43,7 +43,7 @@ def forecast_annotation(nusc, sample_annotation, sample_token, name, attr, times
     #sd_record = nusc.get("sample_data", token)
     #cs_record = nusc.get("calibrated_sensor", sd_record["calibrated_sensor_token"])
     #pose_record = nusc.get("ego_pose", sd_record["ego_pose_token"])
-
+    stale = False
     for i in range(timesteps):
         box = Box(center = sample_annotation["translation"],
             size = sample_annotation["size"],
@@ -68,6 +68,11 @@ def forecast_annotation(nusc, sample_annotation, sample_token, name, attr, times
 
         if next_token != "":
             sample_annotation = nusc.get("sample_annotation", next_token)
+        else:
+            stale = True
+
+    if stale:
+        return None
         
     return forecast_box
 

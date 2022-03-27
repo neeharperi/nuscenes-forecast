@@ -82,12 +82,14 @@ def box2d_iou(boxA, boxB):
     polyA = Polygon([(cornersA[0][0], cornersA[0][1]), (cornersA[1][0], cornersA[1][1]), (cornersA[5][0], cornersA[5][1]), (cornersA[4][0], cornersA[4][1])])
     polyB = Polygon([(cornersB[0][0], cornersB[0][1]), (cornersB[1][0], cornersB[1][1]), (cornersB[5][0], cornersB[5][1]), (cornersB[4][0], cornersB[4][1])])
 
-    try:
-        iou = polyA.intersection(polyB).area / polyA.union(polyB).area
-    except:
-        return 0 
+    intersection = polyA.intersection(polyB).area 
+    
+    if intersection > 0:
+        union = polyA.union(polyB).area
+        return intersection / union
         
-    return iou 
+    else:
+        return 0 
 
 def center_distance(gt_box: EvalBox, pred_box: EvalBox) -> float:
     """
