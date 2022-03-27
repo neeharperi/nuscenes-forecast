@@ -82,8 +82,11 @@ def box2d_iou(boxA, boxB):
     polyA = Polygon([(cornersA[0][0], cornersA[0][1]), (cornersA[1][0], cornersA[1][1]), (cornersA[5][0], cornersA[5][1]), (cornersA[4][0], cornersA[4][1])])
     polyB = Polygon([(cornersB[0][0], cornersB[0][1]), (cornersB[1][0], cornersB[1][1]), (cornersB[5][0], cornersB[5][1]), (cornersB[4][0], cornersB[4][1])])
 
-    iou = polyA.intersection(polyB).area / polyA.union(polyB).area
-
+    try:
+        iou = polyA.intersection(polyB).area / polyA.union(polyB).area
+    except:
+        return 0 
+        
     return iou 
 
 def center_distance(gt_box: EvalBox, pred_box: EvalBox) -> float:
@@ -243,7 +246,7 @@ class DetectionEval:
             for sample_token in self.pred_boxes.boxes.keys():
                 static_boxes = []
                 for boxes in self.pred_boxes.boxes[sample_token]:
-                    if trajectory(nusc, boxes, forecast) != "static":
+                    if trajectory(nusc, boxes) != "static":
                         continue
                     
                     static_boxes.append(boxes)
