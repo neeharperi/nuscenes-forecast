@@ -269,59 +269,77 @@ class DetectionEval:
         self.gt_boxes = filter_eval_boxes(nusc, self.gt_boxes, self.cfg.class_range, verbose=verbose)
         
         ########################################################################################################
-        if self.topK != 0:
-            pred_boxes_topK = {}
-            for class_name in ["car", "pedestrian"]:
-                for sample_token in self.gt_boxes.boxes.keys():
-                    
-                    if sample_token not in pred_boxes_topK:
-                        pred_boxes_topK[sample_token] = []
+        max_thresh_det = {"car" : 0.5, "pedestrian" : 0.125}
+        max_thresh_forecast = {"car" : 1, "pedestrian" : 0.25}
 
-                    pred_boxes = [box for box in self.pred_boxes.boxes[sample_token] if class_name in box.detection_name]
-                    groups = set([box.forecast_id for box in pred_boxes])
+        pred_boxes_topK = {}
+        for class_name in ["car", "pedestrian"]:
+            taken = set()
+            for sample_token in self.gt_boxes.boxes.keys():
+                if sample_token not in pred_boxes_topK:
+                    pred_boxes_topK[sample_token] = []
 
-                    for group in groups:
-                        boxes = [box for box in pred_boxes if box.forecast_id == group]
-                        scores = box_scores(boxes)
-                        boxes = [b for _, b in sorted(zip(scores, boxes), key=lambda x: x[0], reverse=True)][:topK]
-                        
-                        if len(boxes) == 1:
-                            pred_boxes_topK[sample_token] += boxes
+                pred_boxes = [box for box in self.pred_boxes.boxes[sample_token] if class_name in box.detection_name]
+                pred_confs = [box.detection_score for box in pred_boxes]
+                sorted_pred_boxes = [b for _, b in sorted(zip(pred_confs, pred_boxes), key=lambda x: x[0], reverse=True)]
+
+                groups = set([box.forecast_id for box in sorted_pred_boxes])
+
+                for group in groups:
+                    boxes = [box for box in pred_boxes if box.forecast_id == group]
+                    scores = box_scores(boxes)
+                    boxes = [b for _, b in sorted(zip(scores, boxes), key=lambda x: x[0], reverse=True)][:topK]
+
+                    test_box = deepcopy(boxes[0])
+
+                    if topK == 1:
+                        pred_boxes_topK[sample_token].append(test_box)
+                        continue 
+
+                    min_dist = np.inf
+                    match_gt_idx = None
+
+                    for gt_idx, gt_box in enumerate(self.gt_boxes.boxes[sample_token]):
+                        if class_name not in gt_box.detection_name:
                             continue 
 
-                        test_box = boxes[0]
-                        min_dist = np.inf
-                        match_gt_idx = None
+                        this_distance = center_distance(gt_box, test_box)
+                        if this_distance < min_dist and (sample_token, gt_idx) not in taken:
+                            min_dist = this_distance
+                            match_gt_idx = gt_idx
 
-                        for gt_idx, gt_box in enumerate(self.gt_boxes.boxes[sample_token]):
-                            if class_name not in gt_box.detection_name:
-                                continue 
+                    if min_dist < max_thresh_det[class_name]:
+                        taken.add((sample_token, match_gt_idx))
+                    else:
+                        pred_boxes_topK[sample_token].append(test_box)
+                        continue 
 
-                            this_distance = center_distance(gt_box, test_box)
-                            if this_distance < min_dist:
-                                min_dist = this_distance
-                                match_gt_idx = gt_idx    
-                        
-                        min_fde = np.inf 
-                        match_box = None
-                        if match_gt_idx is not None:
-                            for box in boxes:
-                                match_gt = self.gt_boxes.boxes[sample_token][match_gt_idx]
-                                fde = center_distance(match_gt.forecast_boxes[-1], box.forecast_boxes[-1])
-                                if fde < min_fde:
-                                    min_fde = fde 
-                                    match_box = box
-                            
+                    min_fde = np.inf 
+                    match_box = None
+                    if match_gt_idx is not None:
+                        for box in boxes:
+                            match_gt = self.gt_boxes.boxes[sample_token][match_gt_idx]
+                            fde = center_distance(match_gt.forecast_boxes[-1], box.forecast_boxes[-1])
+                            if fde < min_fde:
+                                min_fde = fde 
+                                match_box = deepcopy(box)
+
+                        if min_fde < max_thresh_forecast[class_name]:
+                            match_box.detection_score = test_box.detection_score
+                            match_box.forecast_score = test_box.forecast_score
                             pred_boxes_topK[sample_token].append(match_box)
                         else:
                             pred_boxes_topK[sample_token].append(test_box)
-                    
-            for sample_token in self.gt_boxes.boxes.keys():
-                self.pred_boxes.boxes[sample_token] = pred_boxes_topK[sample_token]
-        else:
-            for sample_token in self.gt_boxes.boxes.keys():
-                for box in self.pred_boxes.boxes[sample_token]:
-                    box.detection_score = box.forecast_score
+
+                    else:
+                        pred_boxes_topK[sample_token].append(test_box)
+        
+        pred_count = 0
+        for sample_token in self.gt_boxes.boxes.keys():
+            self.pred_boxes.boxes[sample_token] = pred_boxes_topK[sample_token]
+            pred_count += len(pred_boxes_topK[sample_token])
+
+        print("Predicted Trajectories @ K={}: {}".format(topK, pred_count))
         
         ########################################################################
         self.sample_tokens = self.gt_boxes.sample_tokens
