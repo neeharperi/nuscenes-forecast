@@ -5,8 +5,8 @@ def getDetectionNames(cohort_analysis=False):
     if not cohort_analysis:
         #DETECTION_NAMES = ['car', 'truck', 'bus', 'trailer', 'construction_vehicle', 'pedestrian', 'motorcycle', 'bicycle',
         #                'traffic_cone', 'barrier']
-        #DETECTION_NAMES = ['car', 'pedestrian']
-        DETECTION_NAMES = ['car']
+        DETECTION_NAMES = ['car', 'pedestrian']
+        #DETECTION_NAMES = ['car']
 
 
     else:
